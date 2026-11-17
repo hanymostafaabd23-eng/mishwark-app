@@ -1,1 +1,29 @@
-
+{
+  "project_info": {
+    "project_number": "369596763433",
+    "project_id": "mishwark-cee95",
+    "storage_bucket": "mishwark-cee95.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:369596763433:android:f0c1918dae3a7c37eb7b38",
+        "android_client_info": {
+          "package_name": "com.mishwark.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD4U2321y3qC4Dp5nskdTGfOaCtQZbPeE0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
