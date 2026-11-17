@@ -25,7 +25,8 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
-
+      - name: Get SHA Fingerprints
+        run: gradle :app:signingReport --console=plain
       - name: Show project files
         run: find app/src/main -type f
 
