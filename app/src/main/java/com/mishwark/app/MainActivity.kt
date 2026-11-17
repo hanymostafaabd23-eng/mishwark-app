@@ -9,12 +9,15 @@ import android.text.InputType
 import android.util.Log
 import android.widget.*
 import android.content.Context
+import android.app.AlertDialog
+
 import com.google.firebase.FirebaseApp
 import com.google.firebase.FirebaseException
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.PhoneAuthOptions
 import com.google.firebase.auth.PhoneAuthProvider
 import com.google.firebase.auth.PhoneAuthCredential
+
 import java.util.concurrent.TimeUnit
 
 class MainActivity : Activity() {
@@ -36,6 +39,7 @@ class MainActivity : Activity() {
                 .use { it.write(details) }
 
             Log.e("MISHWARK_ERROR", message, error)
+
         } catch (e: Exception) {
             Log.e("MISHWARK_ERROR", "Could not save error", e)
         }
@@ -43,6 +47,29 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        val oldHandler = Thread.getDefaultUncaughtExceptionHandler()
+
+        Thread.setDefaultUncaughtExceptionHandler { thread, error ->
+            saveError("APP CRASHED", error)
+            oldHandler?.uncaughtException(thread, error)
+        }
+
+        try {
+            val file = getFileStreamPath("mishwark_errors.txt")
+
+            if (file.exists()) {
+                val oldErrors = file.readText()
+
+                AlertDialog.Builder(this)
+                    .setTitle("تقرير أخطاء مشوارك")
+                    .setMessage(oldErrors.takeLast(3000))
+                    .setPositiveButton("موافق", null)
+                    .show()
+            }
+        } catch (e: Exception) {
+            Log.e("MISHWARK_ERROR", "Reading error file failed", e)
+        }
 
         try {
             FirebaseApp.initializeApp(this)
@@ -137,6 +164,7 @@ class MainActivity : Activity() {
 
                     override fun onVerificationFailed(e: FirebaseException) {
                         saveError("Phone verification failed", e)
+
                         runOnUiThread {
                             send.isEnabled = true
                             showError("فشل الإرسال: ${e.message}")
@@ -148,7 +176,9 @@ class MainActivity : Activity() {
                         token: PhoneAuthProvider.ForceResendingToken
                     ) {
                         verificationId = id
-                        runOnUiThread { showCodeScreen() }
+                        runOnUiThread {
+                            showCodeScreen()
+                        }
                     }
 
                     override fun onCodeAutoRetrievalTimeOut(id: String) {
@@ -220,6 +250,7 @@ class MainActivity : Activity() {
         try {
             auth.signInWithCredential(credential)
                 .addOnCompleteListener(this) { task ->
+
                     if (task.isSuccessful) {
                         showError("تم تسجيل الدخول بنجاح في مشوارك")
                     } else {
@@ -227,6 +258,7 @@ class MainActivity : Activity() {
                         showError("فشل تسجيل الدخول: ${task.exception?.message}")
                     }
                 }
+
         } catch (e: Exception) {
             saveError("Sign in crashed", e)
             showError("خطأ في تسجيل الدخول: ${e.message}")
