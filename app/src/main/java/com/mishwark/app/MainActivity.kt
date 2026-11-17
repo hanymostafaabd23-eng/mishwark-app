@@ -1,4 +1,4 @@
-
+import com.google.firebase.auth.FirebaseAuth
 package com.mishwark.app
 
 import android.app.Activity
