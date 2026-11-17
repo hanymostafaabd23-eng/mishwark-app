@@ -6,7 +6,9 @@ import android.os.Bundle
 import android.graphics.Color
 import android.view.Gravity
 import android.text.InputType
+import android.util.Log
 import android.widget.*
+import com.google.firebase.FirebaseApp
 import com.google.firebase.FirebaseException
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.PhoneAuthOptions
@@ -21,8 +23,30 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        auth = FirebaseAuth.getInstance()
-        showPhoneScreen()
+
+        try {
+            val app = FirebaseApp.initializeApp(this)
+
+            if (app == null) {
+                Toast.makeText(
+                    this,
+                    "تعذر تشغيل Firebase. راجع إعدادات التطبيق",
+                    Toast.LENGTH_LONG
+                ).show()
+                return
+            }
+
+            auth = FirebaseAuth.getInstance()
+            showPhoneScreen()
+
+        } catch (e: Exception) {
+            Log.e("MISHWARK_ERROR", "Firebase initialization error", e)
+            Toast.makeText(
+                this,
+                "خطأ في تشغيل التطبيق: ${e.message}",
+                Toast.LENGTH_LONG
+            ).show()
+        }
     }
 
     private fun createLayout(): LinearLayout {
@@ -70,11 +94,17 @@ class MainActivity : Activity() {
         layout.addView(phone)
         layout.addView(send)
 
+        setContentView(layout)
+
         send.setOnClickListener {
             val number = phone.text.toString().trim()
 
             if (!number.matches(Regex("^01[0125][0-9]{8}$"))) {
-                Toast.makeText(this, "أدخل رقم مصري صحيح", Toast.LENGTH_LONG).show()
+                Toast.makeText(
+                    this,
+                    "أدخل رقم مصري صحيح",
+                    Toast.LENGTH_LONG
+                ).show()
                 return@setOnClickListener
             }
 
@@ -82,46 +112,74 @@ class MainActivity : Activity() {
             send.isEnabled = false
             sendCode(fullNumber, send)
         }
-
-        setContentView(layout)
     }
 
     private fun sendCode(number: String, send: Button) {
-        val callbacks =
-            object : PhoneAuthProvider.OnVerificationStateChangedCallbacks() {
+        try {
+            Log.d("MISHWARK_ERROR", "Starting phone verification")
 
-                override fun onVerificationCompleted(
-                    credential: PhoneAuthCredential
-                ) {
-                    signIn(credential)
+            val callbacks =
+                object : PhoneAuthProvider.OnVerificationStateChangedCallbacks() {
+
+                    override fun onVerificationCompleted(
+                        credential: PhoneAuthCredential
+                    ) {
+                        Log.d("MISHWARK_ERROR", "Verification completed")
+                        signIn(credential)
+                    }
+
+                    override fun onVerificationFailed(e: FirebaseException) {
+                        Log.e(
+                            "MISHWARK_ERROR",
+                            "Phone verification failed",
+                            e
+                        )
+
+                        send.isEnabled = true
+
+                        Toast.makeText(
+                            this@MainActivity,
+                            "فشل إرسال الكود: ${e.message}",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
+
+                    override fun onCodeSent(
+                        id: String,
+                        token: PhoneAuthProvider.ForceResendingToken
+                    ) {
+                        Log.d("MISHWARK_ERROR", "SMS code sent")
+                        verificationId = id
+                        showCodeScreen()
+                    }
+
+                    override fun onCodeAutoRetrievalTimeOut(id: String) {
+                        Log.d(
+                            "MISHWARK_ERROR",
+                            "Code auto retrieval timed out"
+                        )
+                    }
                 }
 
-                override fun onVerificationFailed(e: FirebaseException) {
-                    send.isEnabled = true
-                    Toast.makeText(
-                        this@MainActivity,
-                        "فشل إرسال الكود: ${e.message}",
-                        Toast.LENGTH_LONG
-                    ).show()
-                }
+            val options = PhoneAuthOptions.newBuilder(auth)
+                .setPhoneNumber(number)
+                .setTimeout(60L, TimeUnit.SECONDS)
+                .setActivity(this)
+                .setCallbacks(callbacks)
+                .build()
 
-                override fun onCodeSent(
-                    id: String,
-                    token: PhoneAuthProvider.ForceResendingToken
-                ) {
-                    verificationId = id
-                    showCodeScreen()
-                }
-            }
+            PhoneAuthProvider.verifyPhoneNumber(options)
 
-        val options = PhoneAuthOptions.newBuilder(auth)
-            .setPhoneNumber(number)
-            .setTimeout(60L, TimeUnit.SECONDS)
-            .setActivity(this)
-            .setCallbacks(callbacks)
-            .build()
+        } catch (e: Exception) {
+            Log.e("MISHWARK_ERROR", "Sending code crashed", e)
+            send.isEnabled = true
 
-        PhoneAuthProvider.verifyPhoneNumber(options)
+            Toast.makeText(
+                this,
+                "حدث خطأ: ${e.message}",
+                Toast.LENGTH_LONG
+            ).show()
+        }
     }
 
     private fun showCodeScreen() {
@@ -152,6 +210,8 @@ class MainActivity : Activity() {
         layout.addView(code)
         layout.addView(verify)
 
+        setContentView(layout)
+
         verify.setOnClickListener {
             val enteredCode = code.text.toString().trim()
             val id = verificationId
@@ -166,11 +226,12 @@ class MainActivity : Activity() {
             }
 
             verify.isEnabled = false
-            val credential = PhoneAuthProvider.getCredential(id, enteredCode)
+
+            val credential =
+                PhoneAuthProvider.getCredential(id, enteredCode)
+
             signIn(credential)
         }
-
-        setContentView(layout)
     }
 
     private fun signIn(credential: PhoneAuthCredential) {
@@ -183,6 +244,12 @@ class MainActivity : Activity() {
                         Toast.LENGTH_LONG
                     ).show()
                 } else {
+                    Log.e(
+                        "MISHWARK_ERROR",
+                        "Sign in failed",
+                        task.exception
+                    )
+
                     Toast.makeText(
                         this,
                         "فشل تسجيل الدخول: ${task.exception?.message}",
