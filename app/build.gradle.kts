@@ -1,4 +1,3 @@
-
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -29,10 +28,9 @@ android {
 
 dependencies {
     implementation(platform("com.google.firebase:firebase-bom:34.5.0"))
-
     implementation("com.google.firebase:firebase-auth")
     implementation("com.google.firebase:firebase-firestore")
-
-    // حل مشكلة ContextCompat.registerReceiver
     implementation("androidx.core:core:1.15.0")
+
+    implementation("org.maplibre.gl:android-sdk:11.11.0")
 }
