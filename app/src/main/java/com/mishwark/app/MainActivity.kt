@@ -18,7 +18,6 @@ import android.view.Gravity
 import android.text.InputType
 import android.util.Log
 import android.widget.*
-
 import java.util.Locale
 import java.util.concurrent.TimeUnit
 
@@ -28,6 +27,9 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.PhoneAuthOptions
 import com.google.firebase.auth.PhoneAuthProvider
 import com.google.firebase.auth.PhoneAuthCredential
+
+import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.FieldValue
 
 import okhttp3.OkHttpClient
 import org.maplibre.android.MapLibre
@@ -42,6 +44,8 @@ import org.maplibre.android.maps.Style
 class MainActivity : Activity() {
 
     private lateinit var auth: FirebaseAuth
+    private lateinit var db: FirebaseFirestore
+
     private var verificationId: String? = null
 
     private val LOCATION_PERMISSION_CODE = 200
@@ -144,6 +148,7 @@ class MainActivity : Activity() {
                 ?: throw IllegalStateException("Firebase initialization failed")
 
             auth = FirebaseAuth.getInstance()
+            db = FirebaseFirestore.getInstance()
 
             showCorrectScreen()
 
@@ -168,9 +173,25 @@ class MainActivity : Activity() {
 
         if (user.uid == adminUid) {
             showAdminScreen()
-        } else {
-            showHomeScreen()
+            return
         }
+
+        db.collection("drivers")
+            .document(user.uid)
+            .get()
+            .addOnSuccessListener { document ->
+                if (document.exists()) {
+                    val status = document.getString("status") ?: "pending"
+                    showDriverScreen(status)
+                } else {
+                    showHomeScreen()
+                }
+            }
+            .addOnFailureListener { error ->
+                saveError("Checking driver account failed", error)
+                showError("تعذر التحقق من حساب السائق")
+                showHomeScreen()
+            }
     }
 
     private fun createLayout(): LinearLayout {
@@ -236,8 +257,6 @@ class MainActivity : Activity() {
         send.isEnabled = false
 
         try {
-            saveError("Starting phone verification")
-
             val callbacks =
                 object : PhoneAuthProvider.OnVerificationStateChangedCallbacks() {
 
@@ -351,71 +370,230 @@ class MainActivity : Activity() {
         }
     }
 
-    // شاشة الإدارة
-    private fun showAdminScreen() {
-        val main = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER
-            setPadding(25, 25, 25, 25)
-            setBackgroundColor(Color.rgb(10, 35, 70))
-        }
+    // =========================
+    // تسجيل السائق
+    // =========================
 
+    private fun showDriverRegistrationScreen() {
+        val user = auth.currentUser ?: return
+
+        val main = createLayout()
         val scroll = ScrollView(this)
         scroll.addView(main)
 
-        fun addAdminTitle(text: String, size: Float) {
+        fun addText(text: String, size: Float, color: Int) {
             val view = TextView(this).apply {
                 this.text = text
                 textSize = size
-                setTextColor(Color.YELLOW)
+                setTextColor(color)
                 gravity = Gravity.CENTER
                 setPadding(10, 15, 10, 15)
             }
             main.addView(view)
         }
 
-        fun addAdminButton(text: String, message: String) {
-            val button = Button(this).apply {
-                this.text = text
-                textSize = 18f
-                setTextColor(Color.rgb(10, 35, 70))
-                setBackgroundColor(Color.YELLOW)
+        fun addInput(hintText: String): EditText {
+            val field = EditText(this).apply {
+                hint = hintText
+                textSize = 17f
+                setTextColor(Color.BLACK)
+                setHintTextColor(Color.GRAY)
+                setSingleLine(true)
+                setPadding(18, 15, 18, 15)
+                setBackgroundColor(Color.WHITE)
             }
 
-            main.addView(button)
-
-            button.setOnClickListener {
-                AlertDialog.Builder(this)
-                    .setTitle(text)
-                    .setMessage(message)
-                    .setPositiveButton("موافق", null)
-                    .show()
-            }
+            main.addView(field)
+            return field
         }
 
-        addAdminTitle("مشوارك", 36f)
-        addAdminTitle("لوحة تحكم الإدارة", 25f)
-        addAdminTitle("أهلاً بك يا مدير النظام", 20f)
+        addText("مشوارك", 35f, Color.YELLOW)
+        addText("تسجيل بيانات السائق", 24f, Color.WHITE)
 
-        addAdminButton(
-            "إدارة السائقين",
-            "هنا سيتم عرض السائقين وطلبات التسجيل والموافقة عليهم."
+        val name = addInput("اسم السائق بالكامل")
+
+        val phone = addInput("رقم الهاتف")
+
+        phone.setText(user.phoneNumber ?: "")
+
+        addText("اختر نوع المركبة", 18f, Color.YELLOW)
+
+        val vehicleGroup = RadioGroup(this).apply {
+            orientation = RadioGroup.VERTICAL
+            setBackgroundColor(Color.WHITE)
+            setPadding(15, 10, 15, 10)
+        }
+
+        val vehicles = listOf(
+            "توك توك",
+            "تاكسي",
+            "سيارة خاصة",
+            "موتوسيكل",
+            "ميكروباص"
         )
 
-        addAdminButton(
-            "إدارة الركاب",
-            "هنا سيتم عرض حسابات الركاب."
-        )
+        vehicles.forEachIndexed { index, vehicle ->
+            val radio = RadioButton(this).apply {
+                text = vehicle
+                textSize = 18f
+                setTextColor(Color.BLACK)
+                id = 500 + index
+            }
+            vehicleGroup.addView(radio)
+        }
 
-        addAdminButton(
-            "متابعة الرحلات",
-            "هنا ستظهر طلبات الرحلات وحالتها."
-        )
+        vehicleGroup.check(500)
+        main.addView(vehicleGroup)
 
-        addAdminButton(
-            "التقارير والإحصائيات",
-            "هنا ستظهر تقارير وإحصائيات مشوارك."
-        )
+        val plate = addInput("رقم لوحة المركبة")
+
+        val submit = Button(this).apply {
+            text = "إرسال طلب التسجيل"
+            textSize = 18f
+            setBackgroundColor(Color.YELLOW)
+            setTextColor(Color.rgb(10, 35, 70))
+        }
+
+        main.addView(submit)
+
+        submit.setOnClickListener {
+            val driverName = name.text.toString().trim()
+            val driverPhone = phone.text.toString().trim()
+            val plateNumber = plate.text.toString().trim()
+
+            if (driverName.isEmpty()) {
+                showError("اكتب اسم السائق")
+                return@setOnClickListener
+            }
+
+            if (driverPhone.isEmpty()) {
+                showError("اكتب رقم الهاتف")
+                return@setOnClickListener
+            }
+
+            if (vehicleGroup.checkedRadioButtonId == -1) {
+                showError("اختر نوع المركبة")
+                return@setOnClickListener
+            }
+
+            if (plateNumber.isEmpty()) {
+                showError("اكتب رقم لوحة المركبة")
+                return@setOnClickListener
+            }
+
+            val selectedVehicle = findViewById<RadioButton>(
+                vehicleGroup.checkedRadioButtonId
+            ).text.toString()
+
+            submit.isEnabled = false
+
+            val driverData = hashMapOf<String, Any>(
+                "uid" to user.uid,
+                "name" to driverName,
+                "phone" to driverPhone,
+                "vehicleType" to selectedVehicle,
+                "plateNumber" to plateNumber,
+                "status" to "pending",
+                "createdAt" to FieldValue.serverTimestamp()
+            )
+
+            db.collection("drivers")
+                .document(user.uid)
+                .set(driverData)
+                .addOnSuccessListener {
+                    showError("تم إرسال طلبك بنجاح")
+                    showDriverScreen("pending")
+                }
+                .addOnFailureListener { error ->
+                    submit.isEnabled = true
+                    saveError("Driver registration failed", error)
+                    showError("فشل إرسال الطلب: ${error.message}")
+                }
+        }
+
+        val back = Button(this).apply {
+            text = "العودة"
+        }
+
+        main.addView(back)
+
+        back.setOnClickListener {
+            showHomeScreen()
+        }
+
+        setContentView(scroll)
+    }
+
+    // =========================
+    // شاشة حالة السائق
+    // =========================
+
+    private fun showDriverScreen(status: String) {
+        val main = createLayout()
+        val scroll = ScrollView(this)
+        scroll.addView(main)
+
+        val title = TextView(this).apply {
+            text = "مشوارك"
+            textSize = 36f
+            setTextColor(Color.YELLOW)
+            gravity = Gravity.CENTER
+            setPadding(10, 20, 10, 20)
+        }
+
+        main.addView(title)
+
+        val statusText = when (status) {
+            "approved" -> "تم قبول طلبك! يمكنك العمل كسائق."
+            "rejected" -> "نأسف، تم رفض طلب التسجيل."
+            else -> "طلب التسجيل قيد المراجعة من الإدارة."
+        }
+
+        val message = TextView(this).apply {
+            text = statusText
+            textSize = 23f
+            setTextColor(Color.WHITE)
+            gravity = Gravity.CENTER
+            setPadding(15, 35, 15, 35)
+        }
+
+        main.addView(message)
+
+        if (status == "approved") {
+            val approvedInfo = TextView(this).apply {
+                text = "تم تفعيل حسابك كسائق في مشوارك."
+                textSize = 18f
+                setTextColor(Color.YELLOW)
+                gravity = Gravity.CENTER
+            }
+            main.addView(approvedInfo)
+        }
+
+        val refresh = Button(this).apply {
+            text = "تحديث حالة الطلب"
+        }
+
+        main.addView(refresh)
+
+        refresh.setOnClickListener {
+            val uid = auth.currentUser?.uid ?: return@setOnClickListener
+
+            db.collection("drivers")
+                .document(uid)
+                .get()
+                .addOnSuccessListener { document ->
+                    if (document.exists()) {
+                        showDriverScreen(
+                            document.getString("status") ?: "pending"
+                        )
+                    } else {
+                        showHomeScreen()
+                    }
+                }
+                .addOnFailureListener {
+                    showError("تعذر تحديث حالة الطلب")
+                }
+        }
 
         val logout = Button(this).apply {
             text = "تسجيل الخروج"
@@ -430,6 +608,240 @@ class MainActivity : Activity() {
 
         setContentView(scroll)
     }
+
+    // =========================
+    // لوحة الإدارة
+    // =========================
+
+    private fun showAdminScreen() {
+        val main = createLayout()
+        val scroll = ScrollView(this)
+        scroll.addView(main)
+
+        fun addTitle(text: String, size: Float) {
+            val view = TextView(this).apply {
+                this.text = text
+                textSize = size
+                setTextColor(Color.YELLOW)
+                gravity = Gravity.CENTER
+                setPadding(10, 15, 10, 15)
+            }
+            main.addView(view)
+        }
+
+        fun addButton(text: String, action: () -> Unit) {
+            val button = Button(this).apply {
+                this.text = text
+                textSize = 18f
+                setTextColor(Color.rgb(10, 35, 70))
+                setBackgroundColor(Color.YELLOW)
+            }
+
+            main.addView(button)
+            button.setOnClickListener { action() }
+        }
+
+        addTitle("مشوارك", 36f)
+        addTitle("لوحة تحكم الإدارة", 25f)
+        addTitle("أهلاً بك يا مدير النظام", 20f)
+
+        addButton("إدارة السائقين وطلبات التسجيل") {
+            showPendingDrivers()
+        }
+
+        addButton("إدارة الركاب") {
+            showError("إدارة الركاب سيتم ربطها في المرحلة التالية")
+        }
+
+        addButton("متابعة الرحلات") {
+            showError("طلبات الرحلات سيتم ربطها في المرحلة التالية")
+        }
+
+        addButton("التقارير والإحصائيات") {
+            showError("التقارير سيتم ربطها في المرحلة التالية")
+        }
+
+        val logout = Button(this).apply {
+            text = "تسجيل الخروج"
+        }
+
+        main.addView(logout)
+
+        logout.setOnClickListener {
+            auth.signOut()
+            showPhoneScreen()
+        }
+
+        setContentView(scroll)
+    }
+
+    // عرض طلبات السائقين المعلقة
+    private fun showPendingDrivers() {
+        val progress = AlertDialog.Builder(this)
+            .setTitle("طلبات السائقين")
+            .setMessage("جارٍ تحميل الطلبات...")
+            .setCancelable(false)
+            .create()
+
+        progress.show()
+
+        db.collection("drivers")
+            .whereEqualTo("status", "pending")
+            .get()
+            .addOnSuccessListener { result ->
+                progress.dismiss()
+
+                if (result.isEmpty) {
+                    AlertDialog.Builder(this)
+                        .setTitle("طلبات السائقين")
+                        .setMessage("لا توجد طلبات تسجيل معلقة حاليًا.")
+                        .setPositiveButton("موافق", null)
+                        .show()
+                    return@addOnSuccessListener
+                }
+
+                val container = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    setPadding(20, 10, 20, 10)
+                }
+
+                result.documents.forEach { document ->
+
+                    val driverName =
+                        document.getString("name") ?: "بدون اسم"
+
+                    val driverPhone =
+                        document.getString("phone") ?: "غير مسجل"
+
+                    val vehicle =
+                        document.getString("vehicleType") ?: "غير محدد"
+
+                    val plate =
+                        document.getString("plateNumber") ?: "غير محدد"
+
+                    val info = TextView(this).apply {
+                        text =
+                            "اسم السائق: $driverName\n" +
+                            "الهاتف: $driverPhone\n" +
+                            "نوع المركبة: $vehicle\n" +
+                            "رقم اللوحة: $plate"
+
+                        textSize = 17f
+                        setTextColor(Color.BLACK)
+                        setPadding(10, 15, 10, 15)
+                    }
+
+                    container.addView(info)
+
+                    val buttons = LinearLayout(this).apply {
+                        orientation = LinearLayout.HORIZONTAL
+                    }
+
+                    val approve = Button(this).apply {
+                        text = "موافقة"
+                    }
+
+                    val reject = Button(this).apply {
+                        text = "رفض"
+                    }
+
+                    buttons.addView(
+                        approve,
+                        LinearLayout.LayoutParams(
+                            0,
+                            LinearLayout.LayoutParams.WRAP_CONTENT,
+                            1f
+                        )
+                    )
+
+                    buttons.addView(
+                        reject,
+                        LinearLayout.LayoutParams(
+                            0,
+                            LinearLayout.LayoutParams.WRAP_CONTENT,
+                            1f
+                        )
+                    )
+
+                    container.addView(buttons)
+
+                    val divider = TextView(this).apply {
+                        text = "ــــــــــــــــــــــــــــ"
+                        gravity = Gravity.CENTER
+                        setTextColor(Color.GRAY)
+                    }
+
+                    container.addView(divider)
+
+                    approve.setOnClickListener {
+                        confirmDriverDecision(
+                            document.id,
+                            "approved",
+                            "الموافقة على السائق"
+                        )
+                    }
+
+                    reject.setOnClickListener {
+                        confirmDriverDecision(
+                            document.id,
+                            "rejected",
+                            "رفض السائق"
+                        )
+                    }
+                }
+
+                val scroll = ScrollView(this)
+                scroll.addView(container)
+
+                AlertDialog.Builder(this)
+                    .setTitle("طلبات السائقين المعلقة")
+                    .setView(scroll)
+                    .setPositiveButton("إغلاق", null)
+                    .show()
+            }
+            .addOnFailureListener { error ->
+                progress.dismiss()
+                saveError("Loading drivers failed", error)
+                showError("تعذر تحميل طلبات السائقين: ${error.message}")
+            }
+    }
+
+    // تأكيد الموافقة أو الرفض
+    private fun confirmDriverDecision(
+        driverId: String,
+        newStatus: String,
+        title: String
+    ) {
+        AlertDialog.Builder(this)
+            .setTitle(title)
+            .setMessage("هل أنت متأكد من تنفيذ هذا القرار؟")
+            .setNegativeButton("إلغاء", null)
+            .setPositiveButton("تأكيد") { _, _ ->
+
+                db.collection("drivers")
+                    .document(driverId)
+                    .update("status", newStatus)
+                    .addOnSuccessListener {
+                        showError(
+                            if (newStatus == "approved")
+                                "تمت الموافقة على السائق"
+                            else
+                                "تم رفض طلب السائق"
+                        )
+
+                        showPendingDrivers()
+                    }
+                    .addOnFailureListener { error ->
+                        saveError("Driver decision failed", error)
+                        showError("تعذر تنفيذ القرار: ${error.message}")
+                    }
+            }
+            .show()
+    }
+
+    // =========================
+    // الموقع وGPS
+    // =========================
 
     override fun onRequestPermissionsResult(
         requestCode: Int,
@@ -606,6 +1018,10 @@ class MainActivity : Activity() {
         }
     }
 
+    // =========================
+    // الخريطة
+    // =========================
+
     private fun createMapView(): MapView {
         val view = MapView(this)
         mapView = view
@@ -643,7 +1059,10 @@ class MainActivity : Activity() {
         return view
     }
 
-    // شاشة الراكب الحالية
+    // =========================
+    // شاشة الراكب
+    // =========================
+
     private fun showHomeScreen() {
 
         val main = LinearLayout(this).apply {
@@ -793,8 +1212,7 @@ class MainActivity : Activity() {
 
         addTitle("الوجهة المطلوبة", 20f, Color.YELLOW)
 
-        val destination =
-            addField("اكتب المكان الذي تريد الذهاب إليه")
+        val destination = addField("اكتب المكان الذي تريد الذهاب إليه")
 
         val selectDestination = Button(this).apply {
             text = "🎯 اختيار الوجهة من الخريطة"
@@ -848,6 +1266,17 @@ class MainActivity : Activity() {
                 .show()
         }
 
+        val driverRegister = Button(this).apply {
+            text = "🚕 التسجيل كسائق في مشوارك"
+            textSize = 18f
+        }
+
+        main.addView(driverRegister)
+
+        driverRegister.setOnClickListener {
+            showDriverRegistrationScreen()
+        }
+
         val logout = Button(this).apply {
             text = "تسجيل الخروج"
         }
@@ -861,6 +1290,10 @@ class MainActivity : Activity() {
 
         setContentView(scroll)
     }
+
+    // =========================
+    // دورة حياة الخريطة
+    // =========================
 
     override fun onStart() {
         super.onStart()
