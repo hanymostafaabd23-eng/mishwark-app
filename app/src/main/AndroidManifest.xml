@@ -1,23 +1,565 @@
 
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <uses-permission android:name="android.permission.INTERNET" />
-    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
-    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+package com.mishwark.app
 
-    <application
-        android:label="مشوارك"
-        android:theme="@android:style/Theme.Material.Light.NoActionBar"
-        android:usesCleartextTraffic="false">
+import android.app.Activity
+import android.os.Bundle
+import android.graphics.Color
+import android.view.Gravity
+import android.text.InputType
+import android.util.Log
+import android.widget.*
+import android.content.Context
+import android.app.AlertDialog
+import android.Manifest
+import android.content.pm.PackageManager
+import android.location.Location
+import android.location.LocationListener
+import android.location.LocationManager
 
-        <activity
-            android:name=".MainActivity"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-        </activity>
+import com.google.firebase.FirebaseApp
+import com.google.firebase.FirebaseException
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.PhoneAuthOptions
+import com.google.firebase.auth.PhoneAuthProvider
+import com.google.firebase.auth.PhoneAuthCredential
 
-    </application>
-</manifest>
+import java.util.concurrent.TimeUnit
+
+class MainActivity : Activity() {
+
+    private lateinit var auth: FirebaseAuth
+    private var verificationId: String? = null
+
+    private var pickupField: EditText? = null
+    private var locationButton: Button? = null
+    private var locationManager: LocationManager? = null
+    private var locationListener: LocationListener? = null
+
+    companion object {
+        private const val LOCATION_PERMISSION_CODE = 200
+    }
+
+    private fun saveError(message: String, error: Throwable? = null) {
+        try {
+            val details = buildString {
+                append("\n--- MISHWARK ERROR ---\n")
+                append(message)
+                append("\n")
+                append(error?.stackTraceToString() ?: "")
+            }
+
+            openFileOutput("mishwark_errors.txt", Context.MODE_APPEND)
+                .bufferedWriter()
+                .use { it.write(details) }
+
+            Log.e("MISHWARK_ERROR", message, error)
+
+        } catch (e: Exception) {
+            Log.e("MISHWARK_ERROR", "Could not save error", e)
+        }
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+
+        val oldHandler = Thread.getDefaultUncaughtExceptionHandler()
+
+        Thread.setDefaultUncaughtExceptionHandler { thread, error ->
+            saveError("APP CRASHED", error)
+            oldHandler?.uncaughtException(thread, error)
+        }
+
+        try {
+            val file = getFileStreamPath("mishwark_errors.txt")
+
+            if (file.exists()) {
+                val oldErrors = file.readText()
+
+                AlertDialog.Builder(this)
+                    .setTitle("تقرير أخطاء مشوارك")
+                    .setMessage(oldErrors.takeLast(3000))
+                    .setPositiveButton("موافق", null)
+                    .show()
+            }
+        } catch (e: Exception) {
+            Log.e("MISHWARK_ERROR", "Reading error file failed", e)
+        }
+
+        try {
+            FirebaseApp.initializeApp(this)
+                ?: throw IllegalStateException("Firebase initialization failed")
+
+            auth = FirebaseAuth.getInstance()
+
+            if (auth.currentUser != null) {
+                showHomeScreen()
+            } else {
+                showPhoneScreen()
+            }
+
+        } catch (e: Exception) {
+            saveError("Application startup failed", e)
+            showError("خطأ في تشغيل التطبيق: ${e.message}")
+        }
+    }
+
+    private fun showError(message: String) {
+        Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+    }
+
+    private fun createLayout(): LinearLayout {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setPadding(30, 30, 30, 30)
+            setBackgroundColor(Color.rgb(10, 35, 70))
+        }
+    }
+
+    private fun showPhoneScreen() {
+        val layout = createLayout()
+
+        val title = TextView(this).apply {
+            text = "مشوارك"
+            textSize = 38f
+            setTextColor(Color.YELLOW)
+            gravity = Gravity.CENTER
+        }
+
+        val slogan = TextView(this).apply {
+            text = "مشوارك في إيدك"
+            textSize = 22f
+            setTextColor(Color.WHITE)
+            gravity = Gravity.CENTER
+        }
+
+        val phone = EditText(this).apply {
+            hint = "أدخل رقم هاتفك 01xxxxxxxxx"
+            textSize = 18f
+            inputType = InputType.TYPE_CLASS_PHONE
+            setSingleLine(true)
+            setTextColor(Color.BLACK)
+            setBackgroundColor(Color.WHITE)
+            setPadding(20, 15, 20, 15)
+        }
+
+        val send = Button(this).apply {
+            text = "إرسال كود التأكيد"
+        }
+
+        layout.addView(title)
+        layout.addView(slogan)
+        layout.addView(phone)
+        layout.addView(send)
+
+        setContentView(layout)
+
+        send.setOnClickListener {
+            val number = phone.text.toString().trim()
+
+            if (!number.matches(Regex("^01[0125][0-9]{8}$"))) {
+                showError("أدخل رقم مصري صحيح")
+                return@setOnClickListener
+            }
+
+            sendCode("+20" + number.drop(1), send)
+        }
+    }
+
+    private fun sendCode(number: String, send: Button) {
+        send.isEnabled = false
+
+        try {
+            saveError("Starting phone verification")
+
+            val callbacks =
+                object : PhoneAuthProvider.OnVerificationStateChangedCallbacks() {
+
+                    override fun onVerificationCompleted(
+                        credential: PhoneAuthCredential
+                    ) {
+                        signIn(credential)
+                    }
+
+                    override fun onVerificationFailed(e: FirebaseException) {
+                        saveError("Phone verification failed", e)
+
+                        runOnUiThread {
+                            send.isEnabled = true
+                            showError("فشل الإرسال: ${e.message}")
+                        }
+                    }
+
+                    override fun onCodeSent(
+                        id: String,
+                        token: PhoneAuthProvider.ForceResendingToken
+                    ) {
+                        verificationId = id
+                        runOnUiThread {
+                            showCodeScreen()
+                        }
+                    }
+
+                    override fun onCodeAutoRetrievalTimeOut(id: String) {
+                        verificationId = id
+                    }
+                }
+
+            val options = PhoneAuthOptions.newBuilder(auth)
+                .setPhoneNumber(number)
+                .setTimeout(60L, TimeUnit.SECONDS)
+                .setActivity(this)
+                .setCallbacks(callbacks)
+                .build()
+
+            PhoneAuthProvider.verifyPhoneNumber(options)
+
+        } catch (e: Exception) {
+            saveError("Sending code crashed", e)
+            send.isEnabled = true
+            showError("حدث خطأ: ${e.message}")
+        }
+    }
+
+    private fun showCodeScreen() {
+        val layout = createLayout()
+
+        val title = TextView(this).apply {
+            text = "تأكيد رقم الهاتف"
+            textSize = 26f
+            setTextColor(Color.YELLOW)
+            gravity = Gravity.CENTER
+        }
+
+        val code = EditText(this).apply {
+            hint = "أدخل كود SMS"
+            textSize = 20f
+            inputType = InputType.TYPE_CLASS_NUMBER
+            setSingleLine(true)
+            setTextColor(Color.BLACK)
+            setBackgroundColor(Color.WHITE)
+            setPadding(20, 15, 20, 15)
+        }
+
+        val verify = Button(this).apply {
+            text = "تأكيد الدخول"
+        }
+
+        layout.addView(title)
+        layout.addView(code)
+        layout.addView(verify)
+
+        setContentView(layout)
+
+        verify.setOnClickListener {
+            val enteredCode = code.text.toString().trim()
+            val id = verificationId
+
+            if (enteredCode.length != 6 || id == null) {
+                showError("أدخل كود التأكيد المكون من 6 أرقام")
+                return@setOnClickListener
+            }
+
+            verify.isEnabled = false
+            signIn(PhoneAuthProvider.getCredential(id, enteredCode))
+        }
+    }
+
+    private fun signIn(credential: PhoneAuthCredential) {
+        try {
+            auth.signInWithCredential(credential)
+                .addOnCompleteListener(this) { task ->
+
+                    if (task.isSuccessful) {
+                        showError("تم تسجيل الدخول بنجاح")
+                        showHomeScreen()
+                    } else {
+                        saveError("Sign in failed", task.exception)
+                        showError("فشل تسجيل الدخول: ${task.exception?.message}")
+                    }
+                }
+
+        } catch (e: Exception) {
+            saveError("Sign in crashed", e)
+            showError("خطأ في تسجيل الدخول: ${e.message}")
+        }
+    }
+
+    private fun showHomeScreen() {
+
+        val main = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(25, 25, 25, 25)
+            setBackgroundColor(Color.rgb(10, 35, 70))
+        }
+
+        val scroll = ScrollView(this)
+        scroll.addView(main)
+
+        fun addTitle(text: String, size: Float, color: Int) {
+            val view = TextView(this).apply {
+                this.text = text
+                textSize = size
+                setTextColor(color)
+                gravity = Gravity.CENTER
+                setPadding(5, 15, 5, 15)
+            }
+            main.addView(view)
+        }
+
+        fun addField(hintText: String): EditText {
+            val field = EditText(this).apply {
+                hint = hintText
+                textSize = 17f
+                setTextColor(Color.BLACK)
+                setHintTextColor(Color.GRAY)
+                setSingleLine(true)
+                setPadding(18, 15, 18, 15)
+                setBackgroundColor(Color.WHITE)
+            }
+
+            val params = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+            params.setMargins(0, 8, 0, 8)
+            main.addView(field, params)
+
+            return field
+        }
+
+        addTitle("مشوارك", 38f, Color.YELLOW)
+        addTitle("مشوارك في إيدك", 20f, Color.WHITE)
+        addTitle("أهلاً بك في مشوارك 🚕", 25f, Color.YELLOW)
+        addTitle("اختار وسيلة المواصلات", 21f, Color.WHITE)
+
+        val transportGroup = RadioGroup(this).apply {
+            orientation = RadioGroup.VERTICAL
+            setPadding(15, 10, 15, 10)
+            setBackgroundColor(Color.WHITE)
+        }
+
+        val transports = listOf(
+            "توك توك",
+            "تاكسي",
+            "سيارة خاصة",
+            "ميكروباص"
+        )
+
+        transports.forEachIndexed { index, name ->
+            val radio = RadioButton(this).apply {
+                text = name
+                textSize = 18f
+                setTextColor(Color.BLACK)
+                id = 100 + index
+                setPadding(10, 8, 10, 8)
+            }
+            transportGroup.addView(radio)
+        }
+
+        transportGroup.check(100)
+        main.addView(transportGroup)
+
+        addTitle("مكان الركوب", 20f, Color.YELLOW)
+
+        val pickup = addField("موقع الركوب سيظهر هنا")
+        pickupField = pickup
+
+        val locationBtn = Button(this).apply {
+            text = "📍 تحديد موقعي الحالي"
+            textSize = 18f
+            setTextColor(Color.rgb(10, 35, 70))
+            setBackgroundColor(Color.YELLOW)
+        }
+
+        locationButton = locationBtn
+        main.addView(locationBtn)
+
+        locationBtn.setOnClickListener {
+            checkLocationPermission()
+        }
+
+        addTitle("الوجهة المطلوبة", 20f, Color.YELLOW)
+        val destination = addField("اكتب المكان الذي تريد الذهاب إليه")
+
+        val request = Button(this).apply {
+            text = "اطلب مشوار"
+            textSize = 20f
+            setTextColor(Color.rgb(10, 35, 70))
+            setBackgroundColor(Color.YELLOW)
+            setPadding(15, 15, 15, 15)
+        }
+
+        main.addView(request)
+
+        request.setOnClickListener {
+
+            val from = pickup.text.toString().trim()
+            val to = destination.text.toString().trim()
+
+            if (transportGroup.checkedRadioButtonId == -1) {
+                showError("اختار وسيلة المواصلات")
+                return@setOnClickListener
+            }
+
+            if (from.isEmpty() || to.isEmpty()) {
+                showError("حدد مكان الركوب والوجهة")
+                return@setOnClickListener
+            }
+
+            val selected = findViewById<RadioButton>(
+                transportGroup.checkedRadioButtonId
+            ).text
+
+            AlertDialog.Builder(this)
+                .setTitle("تفاصيل مشوارك")
+                .setMessage(
+                    "وسيلة المواصلات: $selected\n\n" +
+                    "مكان الركوب: $from\n\n" +
+                    "الوجهة: $to\n\n" +
+                    "هذا طلب تجريبي، لم يتم إرساله إلى سائق."
+                )
+                .setPositiveButton("موافق", null)
+                .show()
+        }
+
+        val logout = Button(this).apply {
+            text = "تسجيل الخروج"
+        }
+
+        main.addView(logout)
+
+        logout.setOnClickListener {
+            auth.signOut()
+            showPhoneScreen()
+        }
+
+        setContentView(scroll)
+    }
+
+    private fun checkLocationPermission() {
+
+        if (
+            checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)
+            != PackageManager.PERMISSION_GRANTED &&
+            checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION)
+            != PackageManager.PERMISSION_GRANTED
+        ) {
+            requestPermissions(
+                arrayOf(
+                    Manifest.permission.ACCESS_FINE_LOCATION,
+                    Manifest.permission.ACCESS_COARSE_LOCATION
+                ),
+                LOCATION_PERMISSION_CODE
+            )
+        } else {
+            getCurrentLocation()
+        }
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(
+            requestCode,
+            permissions,
+            grantResults
+        )
+
+        if (requestCode == LOCATION_PERMISSION_CODE) {
+
+            if (grantResults.any {
+                    it == PackageManager.PERMISSION_GRANTED
+                }) {
+                getCurrentLocation()
+            } else {
+                showError("لازم تسمح للتطبيق بالوصول للموقع")
+            }
+        }
+    }
+
+    private fun getCurrentLocation() {
+
+        try {
+            locationManager =
+                getSystemService(Context.LOCATION_SERVICE) as LocationManager
+
+            val manager = locationManager ?: return
+
+            val providers = manager.getProviders(true)
+
+            if (providers.isEmpty()) {
+                showError("شغّل خدمة الموقع GPS في الهاتف")
+                return
+            }
+
+            var bestLocation: Location? = null
+
+            for (provider in providers) {
+
+                val location = manager.getLastKnownLocation(provider)
+
+                if (location != null &&
+                    (bestLocation == null ||
+                    location.accuracy < bestLocation.accuracy)
+                ) {
+                    bestLocation = location
+                }
+            }
+
+            if (bestLocation != null) {
+                showLocation(bestLocation)
+                return
+            }
+
+            showError("جاري تحديد موقعك، انتظر قليلًا")
+
+            val listener = LocationListener { location ->
+                runOnUiThread {
+                    showLocation(location)
+                }
+
+                try {
+                    manager.removeUpdates(locationListener!!)
+                } catch (e: Exception) {
+                    saveError("Removing location updates failed", e)
+                }
+            }
+
+            locationListener = listener
+
+            for (provider in providers) {
+                manager.requestLocationUpdates(
+                    provider,
+                    1000L,
+                    0f,
+                    listener
+                )
+            }
+
+        } catch (e: SecurityException) {
+            saveError("Location permission error", e)
+            showError("التطبيق ليس لديه إذن الموقع")
+
+        } catch (e: Exception) {
+            saveError("Getting location failed", e)
+            showError("تعذر تحديد الموقع: ${e.message}")
+        }
+    }
+
+    private fun showLocation(location: Location) {
+
+        val latitude = location.latitude
+        val longitude = location.longitude
+
+        pickupField?.setText(
+            "خط العرض: $latitude ، خط الطول: $longitude"
+        )
+
+        locationButton?.text = "تم تحديد موقعك بنجاح ✓"
+
+        showError("تم تحديد موقعك الحالي بنجاح")
+    }
+}
