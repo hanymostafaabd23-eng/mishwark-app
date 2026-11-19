@@ -1,15 +1,24 @@
 
 package com.mishwark.app
 
+import android.Manifest
 import android.app.Activity
+import android.app.AlertDialog
+import android.content.Context
+import android.content.pm.PackageManager
+import android.location.Geocoder
+import android.location.Location
+import android.location.LocationListener
+import android.location.LocationManager
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.graphics.Color
 import android.view.Gravity
 import android.text.InputType
 import android.util.Log
 import android.widget.*
-import android.content.Context
-import android.app.AlertDialog
+import java.util.Locale
 
 import com.google.firebase.FirebaseApp
 import com.google.firebase.FirebaseException
@@ -24,6 +33,11 @@ class MainActivity : Activity() {
 
     private lateinit var auth: FirebaseAuth
     private var verificationId: String? = null
+
+    private val LOCATION_PERMISSION_CODE = 200
+    private var pendingPickup: EditText? = null
+    private var locationListener: LocationListener? = null
+    private val locationHandler = Handler(Looper.getMainLooper())
 
     private fun saveError(message: String, error: Throwable? = null) {
         try {
@@ -271,6 +285,166 @@ class MainActivity : Activity() {
         }
     }
 
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+
+        if (requestCode == LOCATION_PERMISSION_CODE) {
+            if (grantResults.isNotEmpty() &&
+                grantResults.any { it == PackageManager.PERMISSION_GRANTED }
+            ) {
+                pendingPickup?.let { findCurrentLocation(it) }
+            } else {
+                showError("يجب السماح بالوصول للموقع أولاً")
+            }
+        }
+    }
+
+    private fun startLocationSearch(pickup: EditText) {
+        pendingPickup = pickup
+
+        val fineGranted = checkSelfPermission(
+            Manifest.permission.ACCESS_FINE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED
+
+        val coarseGranted = checkSelfPermission(
+            Manifest.permission.ACCESS_COARSE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED
+
+        if (!fineGranted && !coarseGranted) {
+            requestPermissions(
+                arrayOf(
+                    Manifest.permission.ACCESS_FINE_LOCATION,
+                    Manifest.permission.ACCESS_COARSE_LOCATION
+                ),
+                LOCATION_PERMISSION_CODE
+            )
+            return
+        }
+
+        findCurrentLocation(pickup)
+    }
+
+    private fun findCurrentLocation(pickup: EditText) {
+        try {
+            val manager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
+
+            val providers = listOf(
+                LocationManager.GPS_PROVIDER,
+                LocationManager.NETWORK_PROVIDER
+            ).filter { manager.isProviderEnabled(it) }
+
+            if (providers.isEmpty()) {
+                showError("شغّل خدمة الموقع GPS من إعدادات الهاتف")
+                return
+            }
+
+            pickup.setText("جارٍ تحديد موقعك...")
+
+            locationListener?.let {
+                manager.removeUpdates(it)
+            }
+            locationHandler.removeCallbacksAndMessages(null)
+
+            var locationFound = false
+
+            val listener = object : LocationListener {
+                override fun onLocationChanged(location: Location) {
+                    if (locationFound) return
+
+                    locationFound = true
+                    manager.removeUpdates(this)
+                    locationHandler.removeCallbacksAndMessages(null)
+
+                    runOnUiThread {
+                        getPlaceName(location, pickup)
+                    }
+                }
+            }
+
+            locationListener = listener
+
+            if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)
+                != PackageManager.PERMISSION_GRANTED &&
+                checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION)
+                != PackageManager.PERMISSION_GRANTED
+            ) {
+                showError("اسمح للتطبيق بالوصول إلى الموقع")
+                return
+            }
+
+            for (provider in providers) {
+                manager.requestLocationUpdates(
+                    provider,
+                    1000L,
+                    0f,
+                    listener,
+                    Looper.getMainLooper()
+                )
+            }
+
+            locationHandler.postDelayed({
+                if (!locationFound) {
+                    manager.removeUpdates(listener)
+                    showError("تعذر تحديد موقعك. تأكد من تشغيل GPS")
+                    pickup.setText("")
+                }
+            }, 20000L)
+
+        } catch (e: Exception) {
+            saveError("Location error", e)
+            showError("حدث خطأ أثناء تحديد الموقع: ${e.message}")
+        }
+    }
+
+    private fun getPlaceName(location: Location, pickup: EditText) {
+        val latitude = location.latitude
+        val longitude = location.longitude
+
+        Thread {
+            var place = ""
+
+            try {
+                if (Geocoder.isPresent()) {
+                    val geocoder = Geocoder(this, Locale("ar", "EG"))
+                    val addresses = geocoder.getFromLocation(
+                        latitude,
+                        longitude,
+                        1
+                    )
+
+                    if (!addresses.isNullOrEmpty()) {
+                        val address = addresses[0]
+
+                        place = listOfNotNull(
+                            address.subLocality,
+                            address.locality,
+                            address.subAdminArea,
+                            address.adminArea
+                        )
+                            .distinct()
+                            .joinToString(" - ")
+                    }
+                }
+            } catch (e: Exception) {
+                saveError("Geocoder error", e)
+            }
+
+            runOnUiThread {
+                if (place.isNotBlank()) {
+                    pickup.setText(place)
+                    showError("تم تحديد موقعك بنجاح")
+                } else {
+                    pickup.setText("$latitude, $longitude")
+                    showError("تم تحديد الإحداثيات، لكن اسم المكان غير متاح")
+                }
+            }
+        }.start()
+    }
+
     private fun showHomeScreen() {
 
         val main = LinearLayout(this).apply {
@@ -316,7 +490,6 @@ class MainActivity : Activity() {
 
         addTitle("مشوارك", 38f, Color.YELLOW)
         addTitle("مشوارك في إيدك", 20f, Color.WHITE)
-
         addTitle("أهلاً بك في مشوارك 🚕", 25f, Color.YELLOW)
         addTitle("اختار وسيلة المواصلات", 21f, Color.WHITE)
 
@@ -350,6 +523,19 @@ class MainActivity : Activity() {
 
         addTitle("مكان الركوب", 20f, Color.YELLOW)
         val pickup = addField("اكتب مكان انطلاقك")
+
+        val locationButton = Button(this).apply {
+            text = "📍 تحديد موقعي الحالي"
+            textSize = 18f
+            setTextColor(Color.WHITE)
+            setBackgroundColor(Color.rgb(25, 110, 75))
+        }
+
+        main.addView(locationButton)
+
+        locationButton.setOnClickListener {
+            startLocationSearch(pickup)
+        }
 
         addTitle("الوجهة المطلوبة", 20f, Color.YELLOW)
         val destination = addField("اكتب المكان الذي تريد الذهاب إليه")
