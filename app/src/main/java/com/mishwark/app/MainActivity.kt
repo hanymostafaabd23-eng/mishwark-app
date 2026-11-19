@@ -76,7 +76,12 @@ class MainActivity : Activity() {
                 ?: throw IllegalStateException("Firebase initialization failed")
 
             auth = FirebaseAuth.getInstance()
-            showPhoneScreen()
+
+            if (auth.currentUser != null) {
+                showHomeScreen()
+            } else {
+                showPhoneScreen()
+            }
 
         } catch (e: Exception) {
             saveError("Application startup failed", e)
@@ -252,7 +257,8 @@ class MainActivity : Activity() {
                 .addOnCompleteListener(this) { task ->
 
                     if (task.isSuccessful) {
-                        showError("تم تسجيل الدخول بنجاح في مشوارك")
+                        showError("تم تسجيل الدخول بنجاح")
+                        showHomeScreen()
                     } else {
                         saveError("Sign in failed", task.exception)
                         showError("فشل تسجيل الدخول: ${task.exception?.message}")
@@ -263,5 +269,142 @@ class MainActivity : Activity() {
             saveError("Sign in crashed", e)
             showError("خطأ في تسجيل الدخول: ${e.message}")
         }
+    }
+
+    private fun showHomeScreen() {
+
+        val main = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(25, 25, 25, 25)
+            setBackgroundColor(Color.rgb(10, 35, 70))
+        }
+
+        val scroll = ScrollView(this)
+        scroll.addView(main)
+
+        fun addTitle(text: String, size: Float, color: Int) {
+            val view = TextView(this).apply {
+                this.text = text
+                textSize = size
+                setTextColor(color)
+                gravity = Gravity.CENTER
+                setPadding(5, 15, 5, 15)
+            }
+            main.addView(view)
+        }
+
+        fun addField(hintText: String): EditText {
+            val field = EditText(this).apply {
+                hint = hintText
+                textSize = 17f
+                setTextColor(Color.BLACK)
+                setHintTextColor(Color.GRAY)
+                setSingleLine(true)
+                setPadding(18, 15, 18, 15)
+                setBackgroundColor(Color.WHITE)
+            }
+
+            val params = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+            params.setMargins(0, 8, 0, 8)
+            main.addView(field, params)
+
+            return field
+        }
+
+        addTitle("مشوارك", 38f, Color.YELLOW)
+        addTitle("مشوارك في إيدك", 20f, Color.WHITE)
+
+        addTitle("أهلاً بك في مشوارك 🚕", 25f, Color.YELLOW)
+        addTitle("اختار وسيلة المواصلات", 21f, Color.WHITE)
+
+        val transportGroup = RadioGroup(this).apply {
+            orientation = RadioGroup.VERTICAL
+            setPadding(15, 10, 15, 10)
+            setBackgroundColor(Color.WHITE)
+        }
+
+        val transports = listOf(
+            "توك توك",
+            "تاكسي",
+            "سيارة خاصة",
+            "ميكروباص"
+        )
+
+        transports.forEachIndexed { index, name ->
+            val radio = RadioButton(this).apply {
+                text = name
+                textSize = 18f
+                setTextColor(Color.BLACK)
+                id = 100 + index
+                setPadding(10, 8, 10, 8)
+            }
+            transportGroup.addView(radio)
+        }
+
+        transportGroup.check(100)
+        main.addView(transportGroup)
+
+        addTitle("مكان الركوب", 20f, Color.YELLOW)
+        val pickup = addField("اكتب مكان انطلاقك")
+
+        addTitle("الوجهة المطلوبة", 20f, Color.YELLOW)
+        val destination = addField("اكتب المكان الذي تريد الذهاب إليه")
+
+        val request = Button(this).apply {
+            text = "اطلب مشوار"
+            textSize = 20f
+            setTextColor(Color.rgb(10, 35, 70))
+            setBackgroundColor(Color.YELLOW)
+            setPadding(15, 15, 15, 15)
+        }
+
+        main.addView(request)
+
+        request.setOnClickListener {
+
+            val from = pickup.text.toString().trim()
+            val to = destination.text.toString().trim()
+
+            if (transportGroup.checkedRadioButtonId == -1) {
+                showError("اختار وسيلة المواصلات")
+                return@setOnClickListener
+            }
+
+            if (from.isEmpty() || to.isEmpty()) {
+                showError("اكتب مكان الركوب والوجهة")
+                return@setOnClickListener
+            }
+
+            val selected = findViewById<RadioButton>(
+                transportGroup.checkedRadioButtonId
+            ).text
+
+            AlertDialog.Builder(this)
+                .setTitle("تفاصيل مشوارك")
+                .setMessage(
+                    "وسيلة المواصلات: $selected\n\n" +
+                    "مكان الركوب: $from\n\n" +
+                    "الوجهة: $to\n\n" +
+                    "هذا طلب تجريبي، لم يتم إرساله إلى سائق."
+                )
+                .setPositiveButton("موافق", null)
+                .show()
+        }
+
+        val logout = Button(this).apply {
+            text = "تسجيل الخروج"
+        }
+
+        main.addView(logout)
+
+        logout.setOnClickListener {
+            auth.signOut()
+            showPhoneScreen()
+        }
+
+        setContentView(scroll)
     }
 }
