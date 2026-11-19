@@ -18,6 +18,7 @@ import android.view.Gravity
 import android.text.InputType
 import android.util.Log
 import android.widget.*
+
 import java.util.Locale
 import java.util.concurrent.TimeUnit
 
@@ -28,7 +29,9 @@ import com.google.firebase.auth.PhoneAuthOptions
 import com.google.firebase.auth.PhoneAuthProvider
 import com.google.firebase.auth.PhoneAuthCredential
 
+import okhttp3.OkHttpClient
 import org.maplibre.android.MapLibre
+import org.maplibre.android.module.http.HttpRequestUtil
 import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
@@ -50,8 +53,28 @@ class MainActivity : Activity() {
     private var mapLibreMap: MapLibreMap? = null
     private var activeMapSelection: EditText? = null
 
-    private val mapStyleUrl =
-        "https://demotiles.maplibre.org/style.json"
+    private val osmStyleJson = """
+    {
+      "version": 8,
+      "sources": {
+        "osm": {
+          "type": "raster",
+          "tiles": [
+            "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+          ],
+          "tileSize": 256,
+          "attribution": "© OpenStreetMap contributors"
+        }
+      },
+      "layers": [
+        {
+          "id": "osm",
+          "type": "raster",
+          "source": "osm"
+        }
+      ]
+    }
+    """
 
     private fun saveError(message: String, error: Throwable? = null) {
         try {
@@ -101,6 +124,20 @@ class MainActivity : Activity() {
 
         try {
             MapLibre.getInstance(this)
+
+            // إعداد الاتصال بخوادم الخرائط
+            val mapClient = OkHttpClient.Builder()
+                .addInterceptor { chain ->
+                    val request = chain.request()
+                        .newBuilder()
+                        .header("User-Agent", "Mishwark/1.0 Android")
+                        .build()
+
+                    chain.proceed(request)
+                }
+                .build()
+
+            HttpRequestUtil.setOkHttpClient(mapClient)
 
             FirebaseApp.initializeApp(this)
                 ?: throw IllegalStateException("Firebase initialization failed")
@@ -486,11 +523,11 @@ class MainActivity : Activity() {
             mapLibreMap = map
 
             map.setStyle(
-                Style.Builder().fromUri(mapStyleUrl)
+                Style.Builder().fromJson(osmStyleJson)
             ) {
                 map.cameraPosition = CameraPosition.Builder()
-                    .target(LatLng(30.0, 31.2))
-                    .zoom(6.0)
+                    .target(LatLng(30.43, 30.96))
+                    .zoom(10.0)
                     .build()
 
                 map.addOnMapClickListener { point ->
@@ -632,7 +669,7 @@ class MainActivity : Activity() {
             500
         )
 
-        mapParams.setMargins(0, 10, 0, 15)
+        mapParams.setMargins(0, 10, 0, 5)
 
         try {
             mapContainer.addView(
@@ -644,6 +681,16 @@ class MainActivity : Activity() {
             )
 
             main.addView(mapContainer, mapParams)
+
+            val attribution = TextView(this).apply {
+                text = "© OpenStreetMap contributors"
+                textSize = 12f
+                setTextColor(Color.WHITE)
+                gravity = Gravity.CENTER
+                setPadding(5, 5, 5, 12)
+            }
+
+            main.addView(attribution)
 
         } catch (e: Exception) {
             saveError("Map creation failed", e)
