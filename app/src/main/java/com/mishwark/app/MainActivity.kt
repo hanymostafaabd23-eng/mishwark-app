@@ -19,6 +19,7 @@ import android.text.InputType
 import android.util.Log
 import android.widget.*
 import java.util.Locale
+import java.util.concurrent.TimeUnit
 
 import com.google.firebase.FirebaseApp
 import com.google.firebase.FirebaseException
@@ -27,7 +28,13 @@ import com.google.firebase.auth.PhoneAuthOptions
 import com.google.firebase.auth.PhoneAuthProvider
 import com.google.firebase.auth.PhoneAuthCredential
 
-import java.util.concurrent.TimeUnit
+import org.maplibre.android.MapLibre
+import org.maplibre.android.camera.CameraPosition
+import org.maplibre.android.camera.CameraUpdateFactory
+import org.maplibre.android.geometry.LatLng
+import org.maplibre.android.maps.MapView
+import org.maplibre.android.maps.MapLibreMap
+import org.maplibre.android.maps.Style
 
 class MainActivity : Activity() {
 
@@ -38,6 +45,12 @@ class MainActivity : Activity() {
     private var pendingPickup: EditText? = null
     private var locationListener: LocationListener? = null
     private val locationHandler = Handler(Looper.getMainLooper())
+
+    private var mapView: MapView? = null
+    private var mapLibreMap: MapLibreMap? = null
+
+    private val mapStyleUrl =
+        "https://demotiles.maplibre.org/style.json"
 
     private fun saveError(message: String, error: Throwable? = null) {
         try {
@@ -86,6 +99,8 @@ class MainActivity : Activity() {
         }
 
         try {
+            MapLibre.getInstance(this)
+
             FirebaseApp.initializeApp(this)
                 ?: throw IllegalStateException("Firebase initialization failed")
 
@@ -360,6 +375,7 @@ class MainActivity : Activity() {
                     locationHandler.removeCallbacksAndMessages(null)
 
                     runOnUiThread {
+                        moveMapToLocation(location)
                         getPlaceName(location, pickup)
                     }
                 }
@@ -443,6 +459,40 @@ class MainActivity : Activity() {
                 }
             }
         }.start()
+    }
+
+    private fun moveMapToLocation(location: Location) {
+        try {
+            val target = LatLng(location.latitude, location.longitude)
+
+            mapLibreMap?.animateCamera(
+                CameraUpdateFactory.newLatLngZoom(target, 15.0)
+            )
+        } catch (e: Exception) {
+            saveError("Moving map to location failed", e)
+        }
+    }
+
+    private fun createMapView(): MapView {
+        val view = MapView(this)
+        mapView = view
+
+        view.onCreate(null)
+
+        view.getMapAsync { map ->
+            mapLibreMap = map
+
+            map.setStyle(
+                Style.Builder().fromUri(mapStyleUrl)
+            ) {
+                map.cameraPosition = CameraPosition.Builder()
+                    .target(LatLng(30.0, 31.2))
+                    .zoom(6.0)
+                    .build()
+            }
+        }
+
+        return view
     }
 
     private fun showHomeScreen() {
@@ -537,6 +587,35 @@ class MainActivity : Activity() {
             startLocationSearch(pickup)
         }
 
+        addTitle("خريطة مشوارك", 22f, Color.YELLOW)
+
+        val mapContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Color.WHITE)
+        }
+
+        val mapParams = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            500
+        )
+        mapParams.setMargins(0, 10, 0, 15)
+
+        try {
+            mapContainer.addView(
+                createMapView(),
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.MATCH_PARENT
+                )
+            )
+
+            main.addView(mapContainer, mapParams)
+
+        } catch (e: Exception) {
+            saveError("Map creation failed", e)
+            showError("تعذر إنشاء الخريطة: ${e.message}")
+        }
+
         addTitle("الوجهة المطلوبة", 20f, Color.YELLOW)
         val destination = addField("اكتب المكان الذي تريد الذهاب إليه")
 
@@ -593,5 +672,42 @@ class MainActivity : Activity() {
         }
 
         setContentView(scroll)
+    }
+
+    override fun onStart() {
+        super.onStart()
+        mapView?.onStart()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        mapView?.onResume()
+    }
+
+    override fun onPause() {
+        mapView?.onPause()
+        super.onPause()
+    }
+
+    override fun onStop() {
+        mapView?.onStop()
+        super.onStop()
+    }
+
+    override fun onLowMemory() {
+        super.onLowMemory()
+        mapView?.onLowMemory()
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        mapView?.onSaveInstanceState(outState)
+        super.onSaveInstanceState(outState)
+    }
+
+    override fun onDestroy() {
+        mapView?.onDestroy()
+        mapView = null
+        mapLibreMap = null
+        super.onDestroy()
     }
 }
