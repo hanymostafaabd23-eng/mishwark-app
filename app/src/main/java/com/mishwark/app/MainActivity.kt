@@ -48,7 +48,7 @@ class MainActivity : Activity() {
 
     private var mapView: MapView? = null
     private var mapLibreMap: MapLibreMap? = null
-
+private var activeMapSelection: EditText? = null
     private val mapStyleUrl =
         "https://demotiles.maplibre.org/style.json"
 
@@ -483,14 +483,22 @@ class MainActivity : Activity() {
             mapLibreMap = map
 
             map.setStyle(
-                Style.Builder().fromUri(mapStyleUrl)
-            ) {
-                map.cameraPosition = CameraPosition.Builder()
-                    .target(LatLng(30.0, 31.2))
-                    .zoom(6.0)
-                    .build()
-            }
-        }
+    Style.Builder().fromUri(mapStyleUrl)
+) {
+    map.cameraPosition = CameraPosition.Builder()
+        .target(LatLng(30.0, 31.2))
+        .zoom(6.0)
+        .build()
+
+    map.addOnMapClickListener { point ->
+        activeMapSelection?.setText(
+            "${point.latitude}, ${point.longitude}"
+        )
+        activeMapSelection = null
+        showError("تم اختيار الموقع بنجاح")
+        true
+    }
+}
 
         return view
     }
@@ -582,7 +590,16 @@ class MainActivity : Activity() {
         }
 
         main.addView(locationButton)
+val selectPickup = Button(this).apply {
+    text = "📍 اختيار مكان الركوب من الخريطة"
+}
 
+main.addView(selectPickup)
+
+selectPickup.setOnClickListener {
+    activeMapSelection = pickup
+    showError("اضغط على المكان المطلوب في الخريطة")
+}
         locationButton.setOnClickListener {
             startLocationSearch(pickup)
         }
@@ -618,7 +635,16 @@ class MainActivity : Activity() {
 
         addTitle("الوجهة المطلوبة", 20f, Color.YELLOW)
         val destination = addField("اكتب المكان الذي تريد الذهاب إليه")
+val selectDestination = Button(this).apply {
+    text = "🎯 اختيار الوجهة من الخريطة"
+}
 
+main.addView(selectDestination)
+
+selectDestination.setOnClickListener {
+    activeMapSelection = destination
+    showError("اضغط على الوجهة المطلوبة في الخريطة")
+}
         val request = Button(this).apply {
             text = "اطلب مشوار"
             textSize = 20f
