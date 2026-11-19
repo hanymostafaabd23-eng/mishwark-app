@@ -53,6 +53,8 @@ class MainActivity : Activity() {
     private var mapLibreMap: MapLibreMap? = null
     private var activeMapSelection: EditText? = null
 
+    private val adminUid = "b7Qe8kkkf1U0cb2AV3xBz76k6Vv1"
+
     private val osmStyleJson = """
     {
       "version": 8,
@@ -125,7 +127,6 @@ class MainActivity : Activity() {
         try {
             MapLibre.getInstance(this)
 
-            // إعداد الاتصال بخوادم الخرائط
             val mapClient = OkHttpClient.Builder()
                 .addInterceptor { chain ->
                     val request = chain.request()
@@ -144,11 +145,7 @@ class MainActivity : Activity() {
 
             auth = FirebaseAuth.getInstance()
 
-            if (auth.currentUser != null) {
-                showHomeScreen()
-            } else {
-                showPhoneScreen()
-            }
+            showCorrectScreen()
 
         } catch (e: Exception) {
             saveError("Application startup failed", e)
@@ -158,6 +155,22 @@ class MainActivity : Activity() {
 
     private fun showError(message: String) {
         Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+    }
+
+    // تحديد الشاشة حسب حساب المستخدم
+    private fun showCorrectScreen() {
+        val user = auth.currentUser
+
+        if (user == null) {
+            showPhoneScreen()
+            return
+        }
+
+        if (user.uid == adminUid) {
+            showAdminScreen()
+        } else {
+            showHomeScreen()
+        }
     }
 
     private fun createLayout(): LinearLayout {
@@ -325,7 +338,7 @@ class MainActivity : Activity() {
 
                     if (task.isSuccessful) {
                         showError("تم تسجيل الدخول بنجاح")
-                        showHomeScreen()
+                        showCorrectScreen()
                     } else {
                         saveError("Sign in failed", task.exception)
                         showError("فشل تسجيل الدخول: ${task.exception?.message}")
@@ -336,6 +349,86 @@ class MainActivity : Activity() {
             saveError("Sign in crashed", e)
             showError("خطأ في تسجيل الدخول: ${e.message}")
         }
+    }
+
+    // شاشة الإدارة
+    private fun showAdminScreen() {
+        val main = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setPadding(25, 25, 25, 25)
+            setBackgroundColor(Color.rgb(10, 35, 70))
+        }
+
+        val scroll = ScrollView(this)
+        scroll.addView(main)
+
+        fun addAdminTitle(text: String, size: Float) {
+            val view = TextView(this).apply {
+                this.text = text
+                textSize = size
+                setTextColor(Color.YELLOW)
+                gravity = Gravity.CENTER
+                setPadding(10, 15, 10, 15)
+            }
+            main.addView(view)
+        }
+
+        fun addAdminButton(text: String, message: String) {
+            val button = Button(this).apply {
+                this.text = text
+                textSize = 18f
+                setTextColor(Color.rgb(10, 35, 70))
+                setBackgroundColor(Color.YELLOW)
+            }
+
+            main.addView(button)
+
+            button.setOnClickListener {
+                AlertDialog.Builder(this)
+                    .setTitle(text)
+                    .setMessage(message)
+                    .setPositiveButton("موافق", null)
+                    .show()
+            }
+        }
+
+        addAdminTitle("مشوارك", 36f)
+        addAdminTitle("لوحة تحكم الإدارة", 25f)
+        addAdminTitle("أهلاً بك يا مدير النظام", 20f)
+
+        addAdminButton(
+            "إدارة السائقين",
+            "هنا سيتم عرض السائقين وطلبات التسجيل والموافقة عليهم."
+        )
+
+        addAdminButton(
+            "إدارة الركاب",
+            "هنا سيتم عرض حسابات الركاب."
+        )
+
+        addAdminButton(
+            "متابعة الرحلات",
+            "هنا ستظهر طلبات الرحلات وحالتها."
+        )
+
+        addAdminButton(
+            "التقارير والإحصائيات",
+            "هنا ستظهر تقارير وإحصائيات مشوارك."
+        )
+
+        val logout = Button(this).apply {
+            text = "تسجيل الخروج"
+        }
+
+        main.addView(logout)
+
+        logout.setOnClickListener {
+            auth.signOut()
+            showPhoneScreen()
+        }
+
+        setContentView(scroll)
     }
 
     override fun onRequestPermissionsResult(
@@ -550,6 +643,7 @@ class MainActivity : Activity() {
         return view
     }
 
+    // شاشة الراكب الحالية
     private fun showHomeScreen() {
 
         val main = LinearLayout(this).apply {
