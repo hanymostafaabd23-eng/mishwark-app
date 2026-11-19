@@ -48,7 +48,8 @@ class MainActivity : Activity() {
 
     private var mapView: MapView? = null
     private var mapLibreMap: MapLibreMap? = null
-private var activeMapSelection: EditText? = null
+    private var activeMapSelection: EditText? = null
+
     private val mapStyleUrl =
         "https://demotiles.maplibre.org/style.json"
 
@@ -345,7 +346,8 @@ private var activeMapSelection: EditText? = null
 
     private fun findCurrentLocation(pickup: EditText) {
         try {
-            val manager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
+            val manager =
+                getSystemService(Context.LOCATION_SERVICE) as LocationManager
 
             val providers = listOf(
                 LocationManager.GPS_PROVIDER,
@@ -362,6 +364,7 @@ private var activeMapSelection: EditText? = null
             locationListener?.let {
                 manager.removeUpdates(it)
             }
+
             locationHandler.removeCallbacksAndMessages(null)
 
             var locationFound = false
@@ -483,22 +486,29 @@ private var activeMapSelection: EditText? = null
             mapLibreMap = map
 
             map.setStyle(
-    Style.Builder().fromUri(mapStyleUrl)
-) {
-    map.cameraPosition = CameraPosition.Builder()
-        .target(LatLng(30.0, 31.2))
-        .zoom(6.0)
-        .build()
+                Style.Builder().fromUri(mapStyleUrl)
+            ) {
+                map.cameraPosition = CameraPosition.Builder()
+                    .target(LatLng(30.0, 31.2))
+                    .zoom(6.0)
+                    .build()
 
-    map.addOnMapClickListener { point ->
-        activeMapSelection?.setText(
-            "${point.latitude}, ${point.longitude}"
-        )
-        activeMapSelection = null
-        showError("تم اختيار الموقع بنجاح")
-        true
-    }
-}
+                map.addOnMapClickListener { point ->
+                    val target = activeMapSelection
+
+                    if (target != null) {
+                        target.setText(
+                            "${point.latitude}, ${point.longitude}"
+                        )
+
+                        activeMapSelection = null
+                        showError("تم اختيار الموقع بنجاح")
+                    }
+
+                    true
+                }
+            }
+        }
 
         return view
     }
@@ -522,6 +532,7 @@ private var activeMapSelection: EditText? = null
                 gravity = Gravity.CENTER
                 setPadding(5, 15, 5, 15)
             }
+
             main.addView(view)
         }
 
@@ -540,6 +551,7 @@ private var activeMapSelection: EditText? = null
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
             )
+
             params.setMargins(0, 8, 0, 8)
             main.addView(field, params)
 
@@ -573,6 +585,7 @@ private var activeMapSelection: EditText? = null
                 id = 100 + index
                 setPadding(10, 8, 10, 8)
             }
+
             transportGroup.addView(radio)
         }
 
@@ -580,6 +593,7 @@ private var activeMapSelection: EditText? = null
         main.addView(transportGroup)
 
         addTitle("مكان الركوب", 20f, Color.YELLOW)
+
         val pickup = addField("اكتب مكان انطلاقك")
 
         val locationButton = Button(this).apply {
@@ -590,18 +604,20 @@ private var activeMapSelection: EditText? = null
         }
 
         main.addView(locationButton)
-val selectPickup = Button(this).apply {
-    text = "📍 اختيار مكان الركوب من الخريطة"
-}
 
-main.addView(selectPickup)
-
-selectPickup.setOnClickListener {
-    activeMapSelection = pickup
-    showError("اضغط على المكان المطلوب في الخريطة")
-}
         locationButton.setOnClickListener {
             startLocationSearch(pickup)
+        }
+
+        val selectPickup = Button(this).apply {
+            text = "📍 اختيار مكان الركوب من الخريطة"
+        }
+
+        main.addView(selectPickup)
+
+        selectPickup.setOnClickListener {
+            activeMapSelection = pickup
+            showError("اضغط على المكان المطلوب في الخريطة")
         }
 
         addTitle("خريطة مشوارك", 22f, Color.YELLOW)
@@ -615,6 +631,7 @@ selectPickup.setOnClickListener {
             LinearLayout.LayoutParams.MATCH_PARENT,
             500
         )
+
         mapParams.setMargins(0, 10, 0, 15)
 
         try {
@@ -634,17 +651,21 @@ selectPickup.setOnClickListener {
         }
 
         addTitle("الوجهة المطلوبة", 20f, Color.YELLOW)
-        val destination = addField("اكتب المكان الذي تريد الذهاب إليه")
-val selectDestination = Button(this).apply {
-    text = "🎯 اختيار الوجهة من الخريطة"
-}
 
-main.addView(selectDestination)
+        val destination =
+            addField("اكتب المكان الذي تريد الذهاب إليه")
 
-selectDestination.setOnClickListener {
-    activeMapSelection = destination
-    showError("اضغط على الوجهة المطلوبة في الخريطة")
-}
+        val selectDestination = Button(this).apply {
+            text = "🎯 اختيار الوجهة من الخريطة"
+        }
+
+        main.addView(selectDestination)
+
+        selectDestination.setOnClickListener {
+            activeMapSelection = destination
+            showError("اضغط على الوجهة المطلوبة في الخريطة")
+        }
+
         val request = Button(this).apply {
             text = "اطلب مشوار"
             textSize = 20f
