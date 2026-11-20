@@ -1863,78 +1863,333 @@ class MainActivity : Activity() {
         driverRegister.setOnClickListener {
             selectedAccountType = "driver"
             showDriverRegistrationScreen()
-        }
+MapAsync { map ->
 
-        val logout = Button(this).apply {
-            text = "تسجيل الخروج"
-        }
+    mapLibreMap = map
 
-        main.addView(logout)
+    map.setStyle(
+        Style.Builder().fromUri(
+            "https://demotiles.maplibre.org/style.json"
+        )
+    ) {
+        findCurrentLocation()
 
-        logout.setOnClickListener {
-            auth.signOut()
-            checkingAccount = false
-            selectedAccountType = "auto"
-            showRoleSelectionScreen()
-        }
+        map.addOnMapClickListener { point ->
 
-        setContentView(scroll)
-    }
+            val latitude = point.latitude
+            val longitude = point.longitude
 
-    // =========================
-    // دورة حياة الخريطة
-    // =========================
+            val placeName = getPlaceName(
+                latitude,
+                longitude
+            )
 
-    override fun onStart() {
-        super.onStart()
-        mapView?.onStart()
-    }
+            val targetField = activeMapSelection
 
-    override fun onResume() {
-        super.onResume()
-        mapView?.onResume()
-    }
-
-    override fun onPause() {
-        mapView?.onPause()
-        super.onPause()
-    }
-
-    override fun onStop() {
-        mapView?.onStop()
-        super.onStop()
-    }
-
-    override fun onLowMemory() {
-        super.onLowMemory()
-        mapView?.onLowMemory()
-    }
-
-    override fun onSaveInstanceState(outState: Bundle) {
-        mapView?.onSaveInstanceState(outState)
-        super.onSaveInstanceState(outState)
-    }
-
-    override fun onDestroy() {
-        locationHandler.removeCallbacksAndMessages(null)
-
-        locationListener?.let { listener ->
-            try {
-                val manager =
-                    getSystemService(Context.LOCATION_SERVICE) as LocationManager
-
-                manager.removeUpdates(listener)
-
-            } catch (error: Exception) {
-                Log.e("MISHWARK", "Removing location listener failed", error)
+            if (targetField != null) {
+                targetField.setText(placeName)
+                activeMapSelection = null
             }
+
+            true
         }
-
-        mapView?.onDestroy()
-        mapView = null
-        mapLibreMap = null
-
-        super.onDestroy()
     }
 }
-    
+
+return mapView!!
+}
+
+// =========================
+// شاشة الراكب
+// =========================
+
+private fun showHomeScreen() {
+
+    val scroll = ScrollView(this)
+
+    val main = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        setPadding(20, 20, 20, 20)
+        setBackgroundColor(Color.rgb(10, 35, 70))
+    }
+
+    scroll.addView(main)
+
+    fun addTitle(value: String, size: Float, color: Int) {
+        val title = TextView(this).apply {
+            text = value
+            textSize = size
+            setTextColor(color)
+            gravity = Gravity.CENTER
+            setPadding(5, 15, 5, 15)
+        }
+        main.addView(title)
+    }
+
+    fun addField(hintText: String): EditText {
+        val field = EditText(this).apply {
+            hint = hintText
+            textSize = 16f
+            setTextColor(Color.BLACK)
+            setHintTextColor(Color.GRAY)
+            setPadding(15, 10, 15, 10)
+            setBackgroundColor(Color.WHITE)
+        }
+        main.addView(field)
+        return field
+    }
+
+    addTitle("مشوارك في إيدك", 28f, Color.YELLOW)
+    addTitle("اطلب مشوارك بسهولة", 19f, Color.WHITE)
+
+    val transportGroup = RadioGroup(this).apply {
+        orientation = RadioGroup.VERTICAL
+    }
+
+    val vehicles = arrayOf("توك توك", "تاكسي", "سيارة خاصة", "ميكروباص")
+
+    for (vehicle in vehicles) {
+        val radio = RadioButton(this).apply {
+            text = vehicle
+            textSize = 18f
+            setTextColor(Color.WHITE)
+        }
+        transportGroup.addView(radio)
+    }
+
+    addTitle("اختار وسيلة المواصلات", 20f, Color.YELLOW)
+    main.addView(transportGroup)
+
+    addTitle("مكان الركوب", 20f, Color.YELLOW)
+    val pickup = addField("مكان ركوبك")
+
+    val selectPickup = Button(this).apply {
+        text = "📍 اختيار مكان الركوب من الخريطة"
+    }
+
+    main.addView(selectPickup)
+
+    selectPickup.setOnClickListener {
+        activeMapSelection = pickup
+        showError("اضغط على المكان المطلوب في الخريطة")
+    }
+
+    addTitle("خريطة مشوارك", 22f, Color.YELLOW)
+
+    val mapContainer = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        setBackgroundColor(Color.WHITE)
+    }
+
+    val mapParams = LinearLayout.LayoutParams(
+        LinearLayout.LayoutParams.MATCH_PARENT,
+        500
+    )
+
+    mapParams.setMargins(0, 10, 0, 5)
+
+    try {
+        mapContainer.addView(
+            createMapView(),
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.MATCH_PARENT
+            )
+        )
+
+        main.addView(mapContainer, mapParams)
+
+        val attribution = TextView(this).apply {
+            text = "© OpenStreetMap contributors"
+            textSize = 12f
+            setTextColor(Color.WHITE)
+            gravity = Gravity.CENTER
+            setPadding(5, 5, 5, 12)
+        }
+
+        main.addView(attribution)
+
+    } catch (error: Exception) {
+        saveError("Map creation failed", error)
+        showError("تعذر إنشاء الخريطة: ${error.message}")
+    }
+
+    addTitle("الوجهة المطلوبة", 20f, Color.YELLOW)
+    val destination = addField("اكتب المكان الذي تريد الذهاب إليه")
+
+    val selectDestination = Button(this).apply {
+        text = "🎯 اختيار الوجهة من الخريطة"
+    }
+
+    main.addView(selectDestination)
+
+    selectDestination.setOnClickListener {
+        activeMapSelection = destination
+        showError("اضغط على الوجهة المطلوبة في الخريطة")
+    }
+
+    val request = Button(this).apply {
+        text = "اطلب مشوار"
+        textSize = 20f
+        setTextColor(Color.rgb(10, 35, 70))
+        setBackgroundColor(Color.YELLOW)
+        setPadding(15, 15, 15, 15)
+    }
+
+    main.addView(request)
+
+    request.setOnClickListener {
+
+        val from = pickup.text.toString().trim()
+        val to = destination.text.toString().trim()
+
+        if (transportGroup.checkedRadioButtonId == -1) {
+            showError("اختار وسيلة المواصلات")
+            return@setOnClickListener
+        }
+
+        if (from.isEmpty() || to.isEmpty()) {
+            showError("اكتب مكان الركوب والوجهة")
+            return@setOnClickListener
+        }
+
+        val currentUser = auth.currentUser
+
+        if (currentUser == null) {
+            showError("سجل دخولك مرة أخرى")
+            showRoleSelectionScreen()
+            return@setOnClickListener
+        }
+
+        val selected = findViewById<RadioButton>(
+            transportGroup.checkedRadioButtonId
+        ).text.toString()
+
+        request.isEnabled = false
+        request.text = "جارٍ إرسال الطلب..."
+
+        val tripData = hashMapOf<String, Any>(
+            "passengerUid" to currentUser.uid,
+            "passengerPhone" to (currentUser.phoneNumber ?: ""),
+            "vehicleType" to selected,
+            "pickup" to from,
+            "destination" to to,
+            "status" to "requested",
+            "createdAt" to FieldValue.serverTimestamp()
+        )
+
+        db.collection("trips")
+            .add(tripData)
+            .addOnSuccessListener { document ->
+
+                request.isEnabled = true
+                request.text = "اطلب مشوار"
+
+                AlertDialog.Builder(this)
+                    .setTitle("تم إرسال طلبك")
+                    .setMessage(
+                        "تم تسجيل طلب الرحلة بنجاح.\n\n" +
+                        "رقم الطلب: ${document.id}\n\n" +
+                        "وسيلة المواصلات: $selected\n\n" +
+                        "مكان الركوب: $from\n\n" +
+                        "الوجهة: $to\n\n" +
+                        "الحالة: في انتظار سائق"
+                    )
+                    .setPositiveButton("موافق", null)
+                    .show()
+            }
+            .addOnFailureListener { error ->
+
+                request.isEnabled = true
+                request.text = "اطلب مشوار"
+
+                saveError("Creating trip failed", error)
+                showError("تعذر إرسال الطلب: ${error.message}")
+            }
+    }
+
+    val driverRegister = Button(this).apply {
+        text = "🚕 التسجيل كسائق في مشوارك"
+        textSize = 18f
+    }
+
+    main.addView(driverRegister)
+
+    driverRegister.setOnClickListener {
+        selectedAccountType = "driver"
+        showDriverRegistrationScreen()
+    }
+
+    val logout = Button(this).apply {
+        text = "تسجيل الخروج"
+    }
+
+    main.addView(logout)
+
+    logout.setOnClickListener {
+        auth.signOut()
+        checkingAccount = false
+        selectedAccountType = "auto"
+        showRoleSelectionScreen()
+    }
+
+    setContentView(scroll)
+}
+
+// =========================
+// دورة حياة الخريطة
+// =========================
+
+override fun onStart() {
+    super.onStart()
+    mapView?.onStart()
+}
+
+override fun onResume() {
+    super.onResume()
+    mapView?.onResume()
+}
+
+override fun onPause() {
+    mapView?.onPause()
+    super.onPause()
+}
+
+override fun onStop() {
+    mapView?.onStop()
+    super.onStop()
+}
+
+override fun onLowMemory() {
+    super.onLowMemory()
+    mapView?.onLowMemory()
+}
+
+override fun onSaveInstanceState(outState: Bundle) {
+    mapView?.onSaveInstanceState(outState)
+    super.onSaveInstanceState(outState)
+}
+
+override fun onDestroy() {
+
+    locationHandler.removeCallbacksAndMessages(null)
+
+    locationListener?.let { listener ->
+        try {
+            val manager =
+                getSystemService(Context.LOCATION_SERVICE) as LocationManager
+
+            manager.removeUpdates(listener)
+
+        } catch (error: Exception) {
+            Log.e("MISHWARK", "Removing location listener failed", error)
+        }
+    }
+
+    mapView?.onDestroy()
+    mapView = null
+    mapLibreMap = null
+
+    super.onDestroy()
+}
+}
