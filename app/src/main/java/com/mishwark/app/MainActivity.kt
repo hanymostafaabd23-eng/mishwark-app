@@ -277,41 +277,146 @@ class MainActivity : Activity() {
 
                                     checkingAccount = false
 
-                                    saveError(
-                                        "Passenger creation failed",
-                                        error
-                                    )
+private fun showCorrectScreen() {
 
-                                    showError(
-                                        "تعذر إنشاء حساب الراكب: ${error.message}"
-                                    )
-                                }
+    val user = auth.currentUser
+
+    if (user == null) {
+        checkingAccount = false
+        showPhoneScreen()
+        return
+    }
+
+    if (checkingAccount) return
+
+    checkingAccount = true
+
+    // الإدارة
+    if (user.uid == adminUid) {
+        checkingAccount = false
+        showAdminScreen()
+        return
+    }
+
+    // فحص حساب السائق
+    db.collection("drivers")
+        .document(user.uid)
+        .get()
+        .addOnSuccessListener { driverDocument ->
+
+            if (driverDocument.exists()) {
+                checkingAccount = false
+
+                val status =
+                    driverDocument.getString("status") ?: "pending"
+
+                showDriverScreen(status)
+                return@addOnSuccessListener
+            }
+
+            // لا يوجد حساب سائق، نكمل فحص الراكب
+            checkPassengerAccount(user)
+
+        }
+        .addOnFailureListener { error ->
+
+            saveError("Checking driver account failed", error)
+
+            // فشل فحص السائق لا يمنع دخول الراكب
+            checkPassengerAccount(user)
+        }
+}
+
+private fun checkPassengerAccount(
+    user: com.google.firebase.auth.FirebaseUser
+) {
+
+    db.collection("users")
+        .document(user.uid)
+        .get()
+        .addOnSuccessListener { passengerDocument ->
+
+            if (passengerDocument.exists()) {
+
+                val role = passengerDocument.getString("role")
+
+                if (role != null && role != "passenger" &&
+                    role != "driver"
+                ) {
+                    checkingAccount = false
+
+                    showError("نوع الحساب غير معروف، يرجى مراجعة الإدارة")
+                    return@addOnSuccessListener
+                }
+
+                val status =
+                    passengerDocument.getString("status") ?: "active"
+
+                if (status == "suspended") {
+                    checkingAccount = false
+
+                    AlertDialog.Builder(this)
+                        .setTitle("الحساب موقوف")
+                        .setMessage(
+                            "تم إيقاف حسابك. يرجى التواصل مع الإدارة."
+                        )
+                        .setCancelable(false)
+                        .setPositiveButton("تسجيل الخروج") { _, _ ->
+                            auth.signOut()
+                            showPhoneScreen()
                         }
+                        .show()
+
+                    return@addOnSuccessListener
+                }
+
+                checkingAccount = false
+                showHomeScreen()
+
+            } else {
+
+                // حساب جديد: إنشاء راكب
+                val passengerData = hashMapOf<String, Any>(
+                    "uid" to user.uid,
+                    "phone" to (user.phoneNumber ?: ""),
+                    "role" to "passenger",
+                    "status" to "active",
+                    "createdAt" to FieldValue.serverTimestamp()
+                )
+
+                db.collection("users")
+                    .document(user.uid)
+                    .set(passengerData)
+                    .addOnSuccessListener {
+
+                        checkingAccount = false
+
+                        showError("تم إنشاء حسابك في مشوارك بنجاح")
+                        showHomeScreen()
                     }
                     .addOnFailureListener { error ->
 
                         checkingAccount = false
 
-                        saveError(
-                            "Checking passenger account failed",
-                            error
-                        )
+                        saveError("Passenger creation failed", error)
 
-                        showError("تعذر التحقق من حساب الراكب")
+                        showError(
+                            "تعذر إنشاء حساب الراكب: ${error.message}"
+                        )
                     }
             }
-            .addOnFailureListener { error ->
+        }
+        .addOnFailureListener { error ->
 
-                checkingAccount = false
+            checkingAccount = false
 
-                saveError(
-                    "Checking driver account failed",
-                    error
-                )
+            saveError("Checking passenger account failed", error)
 
-                showError("تعذر التحقق من حساب السائق")
-            }
-    }
+            showError(
+                "تعذر التحقق من حساب الراكب: ${error.message}"
+            )
+        }
+}
 
     private fun createLayout(): LinearLayout {
         return LinearLayout(this).apply {
