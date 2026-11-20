@@ -512,7 +512,6 @@ class MainActivity : Activity() {
             showRoleSelectionScreen()
         }
     }
-
     // نهاية الجزء الأول
         private fun sendCode(number: String, send: Button) {
         send.isEnabled = false
@@ -1125,7 +1124,6 @@ class MainActivity : Activity() {
             }
             .show()
     }
-
     // نهاية الجزء الثاني
         // =========================
     // عرض الركاب
