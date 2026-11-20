@@ -47,6 +47,7 @@ class MainActivity : Activity() {
     private lateinit var db: FirebaseFirestore
 
     private var verificationId: String? = null
+    private var checkingAccount = false
 
     private val LOCATION_PERMISSION_CODE = 200
     private var pendingPickup: EditText? = null
@@ -162,35 +163,153 @@ class MainActivity : Activity() {
         Toast.makeText(this, message, Toast.LENGTH_LONG).show()
     }
 
-    // تحديد الشاشة حسب حساب المستخدم
+    // =========================
+    // تحديد الشاشة حسب الحساب
+    // =========================
+
     private fun showCorrectScreen() {
+
         val user = auth.currentUser
 
         if (user == null) {
+            checkingAccount = false
             showPhoneScreen()
             return
         }
 
+        if (checkingAccount) return
+
+        checkingAccount = true
+
+        // حساب الإدارة
         if (user.uid == adminUid) {
+            checkingAccount = false
             showAdminScreen()
             return
         }
 
+        // التحقق من حساب السائق أولاً
         db.collection("drivers")
             .document(user.uid)
             .get()
-            .addOnSuccessListener { document ->
-                if (document.exists()) {
-                    val status = document.getString("status") ?: "pending"
+            .addOnSuccessListener { driverDocument ->
+
+                if (driverDocument.exists()) {
+
+                    checkingAccount = false
+
+                    val status =
+                        driverDocument.getString("status") ?: "pending"
+
                     showDriverScreen(status)
-                } else {
-                    showHomeScreen()
+                    return@addOnSuccessListener
                 }
+
+                // لا يوجد حساب سائق، نتحقق من حساب الراكب
+                db.collection("users")
+                    .document(user.uid)
+                    .get()
+                    .addOnSuccessListener { passengerDocument ->
+
+                        if (passengerDocument.exists()) {
+
+                            val role =
+                                passengerDocument.getString("role")
+
+                            if (role != null && role != "passenger") {
+                                checkingAccount = false
+                                showError(
+                                    "نوع الحساب غير معروف، يرجى مراجعة الإدارة"
+                                )
+                                return@addOnSuccessListener
+                            }
+
+                            val status =
+                                passengerDocument.getString("status")
+                                    ?: "active"
+
+                            checkingAccount = false
+
+                            if (status == "suspended") {
+
+                                AlertDialog.Builder(this)
+                                    .setTitle("الحساب موقوف")
+                                    .setMessage(
+                                        "تم إيقاف حسابك. يرجى التواصل مع الإدارة."
+                                    )
+                                    .setCancelable(false)
+                                    .setPositiveButton("تسجيل الخروج") { _, _ ->
+                                        auth.signOut()
+                                        showPhoneScreen()
+                                    }
+                                    .show()
+
+                                return@addOnSuccessListener
+                            }
+
+                            showHomeScreen()
+
+                        } else {
+
+                            // إنشاء حساب راكب جديد لأول مرة
+                            val passengerData = hashMapOf<String, Any>(
+                                "uid" to user.uid,
+                                "phone" to (user.phoneNumber ?: ""),
+                                "role" to "passenger",
+                                "status" to "active",
+                                "createdAt" to FieldValue.serverTimestamp()
+                            )
+
+                            db.collection("users")
+                                .document(user.uid)
+                                .set(passengerData)
+                                .addOnSuccessListener {
+
+                                    checkingAccount = false
+
+                                    showError(
+                                        "تم إنشاء حسابك في مشوارك بنجاح"
+                                    )
+
+                                    showHomeScreen()
+                                }
+                                .addOnFailureListener { error ->
+
+                                    checkingAccount = false
+
+                                    saveError(
+                                        "Passenger creation failed",
+                                        error
+                                    )
+
+                                    showError(
+                                        "تعذر إنشاء حساب الراكب: ${error.message}"
+                                    )
+                                }
+                        }
+                    }
+                    .addOnFailureListener { error ->
+
+                        checkingAccount = false
+
+                        saveError(
+                            "Checking passenger account failed",
+                            error
+                        )
+
+                        showError("تعذر التحقق من حساب الراكب")
+                    }
             }
             .addOnFailureListener { error ->
-                saveError("Checking driver account failed", error)
+
+                checkingAccount = false
+
+                saveError(
+                    "Checking driver account failed",
+                    error
+                )
+
                 showError("تعذر التحقق من حساب السائق")
-                showHomeScreen()
             }
     }
 
@@ -202,6 +321,10 @@ class MainActivity : Activity() {
             setBackgroundColor(Color.rgb(10, 35, 70))
         }
     }
+
+    // =========================
+    // شاشة تسجيل الهاتف
+    // =========================
 
     private fun showPhoneScreen() {
         val layout = createLayout()
