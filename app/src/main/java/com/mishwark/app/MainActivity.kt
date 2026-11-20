@@ -27,6 +27,7 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.PhoneAuthOptions
 import com.google.firebase.auth.PhoneAuthProvider
 import com.google.firebase.auth.PhoneAuthCredential
+import com.google.firebase.auth.FirebaseUser
 
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FieldValue
@@ -206,217 +207,110 @@ class MainActivity : Activity() {
                 }
 
                 // لا يوجد حساب سائق، نتحقق من حساب الراكب
-                db.collection("users")
-                    .document(user.uid)
-                    .get()
-                    .addOnSuccessListener { passengerDocument ->
+                checkPassengerAccount(user)
+            }
+            .addOnFailureListener { error ->
 
-                        if (passengerDocument.exists()) {
+                checkingAccount = false
 
-                            val role =
-                                passengerDocument.getString("role")
+                saveError("Checking driver account failed", error)
 
-                            if (role != null && role != "passenger") {
-                                checkingAccount = false
-                                showError(
-                                    "نوع الحساب غير معروف، يرجى مراجعة الإدارة"
-                                )
-                                return@addOnSuccessListener
+                showError(
+                    "تعذر التحقق من حساب السائق. تحقق من الاتصال وحاول مرة أخرى."
+                )
+            }
+    }
+
+    private fun checkPassengerAccount(user: FirebaseUser) {
+
+        db.collection("users")
+            .document(user.uid)
+            .get()
+            .addOnSuccessListener { passengerDocument ->
+
+                if (passengerDocument.exists()) {
+
+                    val role = passengerDocument.getString("role")
+
+                    if (role != null && role != "passenger") {
+                        checkingAccount = false
+                        showError(
+                            "نوع الحساب غير معروف، يرجى مراجعة الإدارة"
+                        )
+                        return@addOnSuccessListener
+                    }
+
+                    val status =
+                        passengerDocument.getString("status") ?: "active"
+
+                    if (status == "suspended") {
+
+                        checkingAccount = false
+
+                        AlertDialog.Builder(this)
+                            .setTitle("الحساب موقوف")
+                            .setMessage(
+                                "تم إيقاف حسابك. يرجى التواصل مع الإدارة."
+                            )
+                            .setCancelable(false)
+                            .setPositiveButton("تسجيل الخروج") { _, _ ->
+                                auth.signOut()
+                                showPhoneScreen()
                             }
+                            .show()
 
-                            val status =
-                                passengerDocument.getString("status")
-                                    ?: "active"
+                        return@addOnSuccessListener
+                    }
+
+                    checkingAccount = false
+                    showHomeScreen()
+
+                } else {
+
+                    val passengerData = hashMapOf<String, Any>(
+                        "uid" to user.uid,
+                        "phone" to (user.phoneNumber ?: ""),
+                        "role" to "passenger",
+                        "status" to "active",
+                        "createdAt" to FieldValue.serverTimestamp()
+                    )
+
+                    db.collection("users")
+                        .document(user.uid)
+                        .set(passengerData)
+                        .addOnSuccessListener {
 
                             checkingAccount = false
 
-                            if (status == "suspended") {
-
-                                AlertDialog.Builder(this)
-                                    .setTitle("الحساب موقوف")
-                                    .setMessage(
-                                        "تم إيقاف حسابك. يرجى التواصل مع الإدارة."
-                                    )
-                                    .setCancelable(false)
-                                    .setPositiveButton("تسجيل الخروج") { _, _ ->
-                                        auth.signOut()
-                                        showPhoneScreen()
-                                    }
-                                    .show()
-
-                                return@addOnSuccessListener
-                            }
-
-                            showHomeScreen()
-
-                        } else {
-
-                            // إنشاء حساب راكب جديد لأول مرة
-                            val passengerData = hashMapOf<String, Any>(
-                                "uid" to user.uid,
-                                "phone" to (user.phoneNumber ?: ""),
-                                "role" to "passenger",
-                                "status" to "active",
-                                "createdAt" to FieldValue.serverTimestamp()
+                            showError(
+                                "تم إنشاء حسابك في مشوارك بنجاح"
                             )
 
-                            db.collection("users")
-                                .document(user.uid)
-                                .set(passengerData)
-                                .addOnSuccessListener {
-
-                                    checkingAccount = false
-
-                                    showError(
-                                        "تم إنشاء حسابك في مشوارك بنجاح"
-                                    )
-
-                                    showHomeScreen()
-                                }
-                                .addOnFailureListener { error ->
-
-                                    checkingAccount = false
-
-private fun showCorrectScreen() {
-
-    val user = auth.currentUser
-
-    if (user == null) {
-        checkingAccount = false
-        showPhoneScreen()
-        return
-    }
-
-    if (checkingAccount) return
-
-    checkingAccount = true
-
-    // الإدارة
-    if (user.uid == adminUid) {
-        checkingAccount = false
-        showAdminScreen()
-        return
-    }
-
-    // فحص حساب السائق
-    db.collection("drivers")
-        .document(user.uid)
-        .get()
-        .addOnSuccessListener { driverDocument ->
-
-            if (driverDocument.exists()) {
-                checkingAccount = false
-
-                val status =
-                    driverDocument.getString("status") ?: "pending"
-
-                showDriverScreen(status)
-                return@addOnSuccessListener
-            }
-
-            // لا يوجد حساب سائق، نكمل فحص الراكب
-            checkPassengerAccount(user)
-
-        }
-        .addOnFailureListener { error ->
-
-            saveError("Checking driver account failed", error)
-
-            // فشل فحص السائق لا يمنع دخول الراكب
-            checkPassengerAccount(user)
-        }
-}
-
-private fun checkPassengerAccount(
-    user: com.google.firebase.auth.FirebaseUser
-) {
-
-    db.collection("users")
-        .document(user.uid)
-        .get()
-        .addOnSuccessListener { passengerDocument ->
-
-            if (passengerDocument.exists()) {
-
-                val role = passengerDocument.getString("role")
-
-                if (role != null && role != "passenger" &&
-                    role != "driver"
-                ) {
-                    checkingAccount = false
-
-                    showError("نوع الحساب غير معروف، يرجى مراجعة الإدارة")
-                    return@addOnSuccessListener
-                }
-
-                val status =
-                    passengerDocument.getString("status") ?: "active"
-
-                if (status == "suspended") {
-                    checkingAccount = false
-
-                    AlertDialog.Builder(this)
-                        .setTitle("الحساب موقوف")
-                        .setMessage(
-                            "تم إيقاف حسابك. يرجى التواصل مع الإدارة."
-                        )
-                        .setCancelable(false)
-                        .setPositiveButton("تسجيل الخروج") { _, _ ->
-                            auth.signOut()
-                            showPhoneScreen()
+                            showHomeScreen()
                         }
-                        .show()
+                        .addOnFailureListener { error ->
 
-                    return@addOnSuccessListener
+                            checkingAccount = false
+
+                            saveError("Passenger creation failed", error)
+
+                            showError(
+                                "تعذر إنشاء حساب الراكب: ${error.message}"
+                            )
+                        }
                 }
+            }
+            .addOnFailureListener { error ->
 
                 checkingAccount = false
-                showHomeScreen()
 
-            } else {
+                saveError("Checking passenger account failed", error)
 
-                // حساب جديد: إنشاء راكب
-                val passengerData = hashMapOf<String, Any>(
-                    "uid" to user.uid,
-                    "phone" to (user.phoneNumber ?: ""),
-                    "role" to "passenger",
-                    "status" to "active",
-                    "createdAt" to FieldValue.serverTimestamp()
+                showError(
+                    "تعذر التحقق من حساب الراكب: ${error.message}"
                 )
-
-                db.collection("users")
-                    .document(user.uid)
-                    .set(passengerData)
-                    .addOnSuccessListener {
-
-                        checkingAccount = false
-
-                        showError("تم إنشاء حسابك في مشوارك بنجاح")
-                        showHomeScreen()
-                    }
-                    .addOnFailureListener { error ->
-
-                        checkingAccount = false
-
-                        saveError("Passenger creation failed", error)
-
-                        showError(
-                            "تعذر إنشاء حساب الراكب: ${error.message}"
-                        )
-                    }
             }
-        }
-        .addOnFailureListener { error ->
-
-            checkingAccount = false
-
-            saveError("Checking passenger account failed", error)
-
-            showError(
-                "تعذر التحقق من حساب الراكب: ${error.message}"
-            )
-        }
-}
+    }
 
     private fun createLayout(): LinearLayout {
         return LinearLayout(this).apply {
@@ -508,6 +402,7 @@ private fun checkPassengerAccount(
                         token: PhoneAuthProvider.ForceResendingToken
                     ) {
                         verificationId = id
+
                         runOnUiThread {
                             showCodeScreen()
                         }
@@ -584,11 +479,14 @@ private fun checkPassengerAccount(
                 .addOnCompleteListener(this) { task ->
 
                     if (task.isSuccessful) {
+                        checkingAccount = false
                         showError("تم تسجيل الدخول بنجاح")
                         showCorrectScreen()
                     } else {
                         saveError("Sign in failed", task.exception)
-                        showError("فشل تسجيل الدخول: ${task.exception?.message}")
+                        showError(
+                            "فشل تسجيل الدخول: ${task.exception?.message}"
+                        )
                     }
                 }
 
@@ -639,7 +537,6 @@ private fun checkPassengerAccount(
         addText("تسجيل بيانات السائق", 24f, Color.WHITE)
 
         val name = addInput("اسم السائق بالكامل")
-
         val phone = addInput("رقم الهاتف")
 
         phone.setText(user.phoneNumber ?: "")
@@ -831,6 +728,7 @@ private fun checkPassengerAccount(
 
         logout.setOnClickListener {
             auth.signOut()
+            checkingAccount = false
             showPhoneScreen()
         }
 
@@ -897,13 +795,17 @@ private fun checkPassengerAccount(
 
         logout.setOnClickListener {
             auth.signOut()
+            checkingAccount = false
             showPhoneScreen()
         }
 
         setContentView(scroll)
     }
 
-    // عرض طلبات السائقين المعلقة
+    // =========================
+    // عرض طلبات السائقين
+    // =========================
+
     private fun showPendingDrivers() {
         val progress = AlertDialog.Builder(this)
             .setTitle("طلبات السائقين")
@@ -1034,7 +936,10 @@ private fun checkPassengerAccount(
             }
     }
 
-    // تأكيد الموافقة أو الرفض
+    // =========================
+    // الموافقة أو الرفض
+    // =========================
+
     private fun confirmDriverDecision(
         driverId: String,
         newStatus: String,
@@ -1068,7 +973,7 @@ private fun checkPassengerAccount(
     }
 
     // =========================
-    // الموقع وGPS
+    // الموقع و GPS
     // =========================
 
     override fun onRequestPermissionsResult(
@@ -1076,11 +981,17 @@ private fun checkPassengerAccount(
         permissions: Array<out String>,
         grantResults: IntArray
     ) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        super.onRequestPermissionsResult(
+            requestCode,
+            permissions,
+            grantResults
+        )
 
         if (requestCode == LOCATION_PERMISSION_CODE) {
             if (grantResults.isNotEmpty() &&
-                grantResults.any { it == PackageManager.PERMISSION_GRANTED }
+                grantResults.any {
+                    it == PackageManager.PERMISSION_GRANTED
+                }
             ) {
                 pendingPickup?.let { findCurrentLocation(it) }
             } else {
@@ -1156,10 +1067,12 @@ private fun checkPassengerAccount(
 
             locationListener = listener
 
-            if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)
-                != PackageManager.PERMISSION_GRANTED &&
-                checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION)
-                != PackageManager.PERMISSION_GRANTED
+            if (checkSelfPermission(
+                    Manifest.permission.ACCESS_FINE_LOCATION
+                ) != PackageManager.PERMISSION_GRANTED &&
+                checkSelfPermission(
+                    Manifest.permission.ACCESS_COARSE_LOCATION
+                ) != PackageManager.PERMISSION_GRANTED
             ) {
                 showError("اسمح للتطبيق بالوصول إلى الموقع")
                 return
@@ -1199,6 +1112,7 @@ private fun checkPassengerAccount(
             try {
                 if (Geocoder.isPresent()) {
                     val geocoder = Geocoder(this, Locale("ar", "EG"))
+
                     val addresses = geocoder.getFromLocation(
                         latitude,
                         longitude,
@@ -1228,7 +1142,9 @@ private fun checkPassengerAccount(
                     showError("تم تحديد موقعك بنجاح")
                 } else {
                     pickup.setText("$latitude, $longitude")
-                    showError("تم تحديد الإحداثيات، لكن اسم المكان غير متاح")
+                    showError(
+                        "تم تحديد الإحداثيات، لكن اسم المكان غير متاح"
+                    )
                 }
             }
         }.start()
@@ -1236,7 +1152,10 @@ private fun checkPassengerAccount(
 
     private fun moveMapToLocation(location: Location) {
         try {
-            val target = LatLng(location.latitude, location.longitude)
+            val target = LatLng(
+                location.latitude,
+                location.longitude
+            )
 
             mapLibreMap?.animateCamera(
                 CameraUpdateFactory.newLatLngZoom(target, 15.0)
@@ -1268,6 +1187,7 @@ private fun checkPassengerAccount(
                     .build()
 
                 map.addOnMapClickListener { point ->
+
                     val target = activeMapSelection
 
                     if (target != null) {
@@ -1440,7 +1360,9 @@ private fun checkPassengerAccount(
 
         addTitle("الوجهة المطلوبة", 20f, Color.YELLOW)
 
-        val destination = addField("اكتب المكان الذي تريد الذهاب إليه")
+        val destination = addField(
+            "اكتب المكان الذي تريد الذهاب إليه"
+        )
 
         val selectDestination = Button(this).apply {
             text = "🎯 اختيار الوجهة من الخريطة"
@@ -1463,77 +1385,78 @@ private fun checkPassengerAccount(
 
         main.addView(request)
 
-        
-request.setOnClickListener {
+        request.setOnClickListener {
 
-    val from = pickup.text.toString().trim()
-    val to = destination.text.toString().trim()
+            val from = pickup.text.toString().trim()
+            val to = destination.text.toString().trim()
 
-    if (transportGroup.checkedRadioButtonId == -1) {
-        showError("اختار وسيلة المواصلات")
-        return@setOnClickListener
-    }
+            if (transportGroup.checkedRadioButtonId == -1) {
+                showError("اختار وسيلة المواصلات")
+                return@setOnClickListener
+            }
 
-    if (from.isEmpty() || to.isEmpty()) {
-        showError("اكتب مكان الركوب والوجهة")
-        return@setOnClickListener
-    }
+            if (from.isEmpty() || to.isEmpty()) {
+                showError("اكتب مكان الركوب والوجهة")
+                return@setOnClickListener
+            }
 
-    val currentUser = auth.currentUser
+            val currentUser = auth.currentUser
 
-    if (currentUser == null) {
-        showError("سجل دخولك مرة أخرى")
-        showPhoneScreen()
-        return@setOnClickListener
-    }
+            if (currentUser == null) {
+                showError("سجل دخولك مرة أخرى")
+                showPhoneScreen()
+                return@setOnClickListener
+            }
 
-    val selected = findViewById<RadioButton>(
-        transportGroup.checkedRadioButtonId
-    ).text.toString()
+            val selected = findViewById<RadioButton>(
+                transportGroup.checkedRadioButtonId
+            ).text.toString()
 
-    request.isEnabled = false
-    request.text = "جارٍ إرسال الطلب..."
+            request.isEnabled = false
+            request.text = "جارٍ إرسال الطلب..."
 
-    val tripData = hashMapOf<String, Any>(
-        "passengerUid" to currentUser.uid,
-        "passengerPhone" to (currentUser.phoneNumber ?: ""),
-        "vehicleType" to selected,
-        "pickup" to from,
-        "destination" to to,
-        "status" to "requested",
-        "createdAt" to FieldValue.serverTimestamp()
-    )
+            val tripData = hashMapOf<String, Any>(
+                "passengerUid" to currentUser.uid,
+                "passengerPhone" to (currentUser.phoneNumber ?: ""),
+                "vehicleType" to selected,
+                "pickup" to from,
+                "destination" to to,
+                "status" to "requested",
+                "createdAt" to FieldValue.serverTimestamp()
+            )
 
-    db.collection("trips")
-        .add(tripData)
-        .addOnSuccessListener { document ->
+            db.collection("trips")
+                .add(tripData)
+                .addOnSuccessListener { document ->
 
-            request.isEnabled = true
-            request.text = "اطلب مشوار"
+                    request.isEnabled = true
+                    request.text = "اطلب مشوار"
 
-            AlertDialog.Builder(this)
-                .setTitle("تم إرسال طلبك")
-                .setMessage(
-                    "تم تسجيل طلب الرحلة بنجاح.\n\n" +
-                    "رقم الطلب: ${document.id}\n\n" +
-                    "وسيلة المواصلات: $selected\n\n" +
-                    "مكان الركوب: $from\n\n" +
-                    "الوجهة: $to\n\n" +
-                    "الحالة: في انتظار سائق"
-                )
-                .setPositiveButton("موافق", null)
-                .show()
+                    AlertDialog.Builder(this)
+                        .setTitle("تم إرسال طلبك")
+                        .setMessage(
+                            "تم تسجيل طلب الرحلة بنجاح.\n\n" +
+                            "رقم الطلب: ${document.id}\n\n" +
+                            "وسيلة المواصلات: $selected\n\n" +
+                            "مكان الركوب: $from\n\n" +
+                            "الوجهة: $to\n\n" +
+                            "الحالة: في انتظار سائق"
+                        )
+                        .setPositiveButton("موافق", null)
+                        .show()
+                }
+                .addOnFailureListener { error ->
+
+                    request.isEnabled = true
+                    request.text = "اطلب مشوار"
+
+                    saveError("Creating trip failed", error)
+
+                    showError(
+                        "تعذر إرسال الطلب: ${error.message}"
+                    )
+                }
         }
-        .addOnFailureListener { error ->
-
-            request.isEnabled = true
-            request.text = "اطلب مشوار"
-
-            saveError("Creating trip failed", error)
-
-            showError("تعذر إرسال الطلب: ${error.message}")
-        }
-}
 
         val driverRegister = Button(this).apply {
             text = "🚕 التسجيل كسائق في مشوارك"
@@ -1554,6 +1477,7 @@ request.setOnClickListener {
 
         logout.setOnClickListener {
             auth.signOut()
+            checkingAccount = false
             showPhoneScreen()
         }
 
@@ -1595,9 +1519,22 @@ request.setOnClickListener {
     }
 
     override fun onDestroy() {
+        locationHandler.removeCallbacksAndMessages(null)
+
+        locationListener?.let { listener ->
+            try {
+                val manager =
+                    getSystemService(Context.LOCATION_SERVICE) as LocationManager
+                manager.removeUpdates(listener)
+            } catch (e: Exception) {
+                Log.e("MISHWARK", "Removing location listener failed", e)
+            }
+        }
+
         mapView?.onDestroy()
         mapView = null
         mapLibreMap = null
+
         super.onDestroy()
     }
 }
