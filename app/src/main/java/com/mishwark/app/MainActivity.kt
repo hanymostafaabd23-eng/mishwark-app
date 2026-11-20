@@ -940,7 +940,9 @@ class MainActivity : Activity() {
         addButton("إدارة السائقين وطلبات التسجيل") {
             showPendingDrivers()
         }
-
+addButton("➕ إضافة حساب جديد") {
+    addAccountDialog()
+}
         addButton("إدارة الركاب") {
             showPassengers()
         }
