@@ -631,7 +631,7 @@ class MainActivity : Activity() {
 
     // نهاية الجزء الأول
         // =========================
-    // تسجيل الدخول
+    // تسجيل الدخول وربط الحساب بنوعه
     // =========================
 
     private fun signIn(credential: PhoneAuthCredential) {
@@ -640,11 +640,68 @@ class MainActivity : Activity() {
                 .addOnCompleteListener(this) { task ->
 
                     if (task.isSuccessful) {
+
+                        val user = auth.currentUser
+
+                        if (user == null) {
+                            checkingAccount = false
+                            showError("تعذر قراءة بيانات الحساب")
+                            return@addOnCompleteListener
+                        }
+
                         checkingAccount = false
-                        showError("تم تسجيل الدخول بنجاح")
-                        showCorrectScreen()
+
+                        val phoneNumber = user.phoneNumber ?: ""
+
+                        db.collection("account_registry")
+                            .document(phoneNumber)
+                            .get()
+                            .addOnSuccessListener { document ->
+
+                                if (document.exists()) {
+
+                                    val role =
+                                        document.getString("role") ?: ""
+
+                                    if (role != "driver" &&
+                                        role != "passenger"
+                                    ) {
+                                        showError(
+                                            "نوع الحساب غير صحيح، راجع الإدارة"
+                                        )
+                                        auth.signOut()
+                                        selectedAccountType = "auto"
+                                        showRoleSelectionScreen()
+                                        return@addOnSuccessListener
+                                    }
+
+                                    selectedAccountType = role
+
+                                }
+
+                                showError("تم تسجيل الدخول بنجاح")
+                                showCorrectScreen()
+                            }
+                            .addOnFailureListener { error ->
+
+                                checkingAccount = false
+
+                                saveError(
+                                    "Account registry lookup failed",
+                                    error
+                                )
+
+                                showError(
+                                    "تعذر التحقق من نوع الحساب: ${error.message}"
+                                )
+                            }
+
                     } else {
+
+                        checkingAccount = false
+
                         saveError("Sign in failed", task.exception)
+
                         showError(
                             "فشل تسجيل الدخول: ${task.exception?.message}"
                         )
@@ -652,9 +709,196 @@ class MainActivity : Activity() {
                 }
 
         } catch (e: Exception) {
+
+            checkingAccount = false
+
             saveError("Sign in crashed", e)
+
             showError("خطأ في تسجيل الدخول: ${e.message}")
         }
+    }
+
+    // =========================
+    // إضافة حساب جديد من الإدارة
+    // =========================
+
+    private fun addAccountDialog() {
+
+        if (auth.currentUser?.uid != adminUid) {
+            showError("غير مسموح لك بإضافة حسابات")
+            return
+        }
+
+        val layout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(35, 20, 35, 10)
+        }
+
+        val phoneInput = EditText(this).apply {
+            hint = "رقم الهاتف 01xxxxxxxxx"
+            inputType = InputType.TYPE_CLASS_PHONE
+            textSize = 18f
+            setSingleLine(true)
+        }
+
+        val title = TextView(this).apply {
+            text = "اختر نوع الحساب"
+            textSize = 18f
+            setTextColor(Color.BLACK)
+            setPadding(0, 20, 0, 10)
+        }
+
+        val accountGroup = RadioGroup(this).apply {
+            orientation = RadioGroup.VERTICAL
+        }
+
+        val passengerRadio = RadioButton(this).apply {
+            text = "راكب"
+            textSize = 18f
+            id = 7101
+        }
+
+        val driverRadio = RadioButton(this).apply {
+            text = "سائق"
+            textSize = 18f
+            id = 7102
+        }
+
+        accountGroup.addView(passengerRadio)
+        accountGroup.addView(driverRadio)
+
+        passengerRadio.isChecked = true
+
+        layout.addView(phoneInput)
+        layout.addView(title)
+        layout.addView(accountGroup)
+
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("إضافة حساب جديد")
+            .setView(layout)
+            .setNegativeButton("إلغاء", null)
+            .setPositiveButton("إضافة", null)
+            .create()
+
+        dialog.setOnShowListener {
+
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+                .setOnClickListener {
+
+                    val enteredPhone =
+                        phoneInput.text.toString().trim()
+
+                    if (!enteredPhone.matches(
+                            Regex("^01[0125][0-9]{8}$")
+                        )
+                    ) {
+                        showError("أدخل رقم هاتف مصري صحيح")
+                        return@setOnClickListener
+                    }
+
+                    val phoneNumber =
+                        "+20" + enteredPhone.drop(1)
+
+                    val role = if (driverRadio.isChecked) {
+                        "driver"
+                    } else {
+                        "passenger"
+                    }
+
+                    val adminId = auth.currentUser?.uid
+
+                    if (adminId != adminUid) {
+                        showError("انتهت صلاحية الإدارة")
+                        dialog.dismiss()
+                        return@setOnClickListener
+                    }
+
+                    val button =
+                        dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+
+                    button.isEnabled = false
+                    button.text = "جارٍ الحفظ..."
+
+                    val accountData = hashMapOf<String, Any>(
+                        "phone" to phoneNumber,
+                        "role" to role,
+                        "status" to "active",
+                        "createdAt" to FieldValue.serverTimestamp(),
+                        "createdBy" to adminUid
+                    )
+
+                    db.collection("account_registry")
+                        .document(phoneNumber)
+                        .get()
+                        .addOnSuccessListener { existing ->
+
+                            if (existing.exists()) {
+
+                                button.isEnabled = true
+                                button.text = "إضافة"
+
+                                showError("هذا الرقم مضاف بالفعل")
+
+                            } else {
+
+                                db.collection("account_registry")
+                                    .document(phoneNumber)
+                                    .set(accountData)
+                                    .addOnSuccessListener {
+
+                                        dialog.dismiss()
+
+                                        val accountName =
+                                            if (role == "driver")
+                                                "سائق"
+                                            else
+                                                "راكب"
+
+                                        AlertDialog.Builder(this)
+                                            .setTitle("تمت الإضافة بنجاح")
+                                            .setMessage(
+                                                "تم إضافة الحساب بنجاح.\n\n" +
+                                                "رقم الهاتف: $phoneNumber\n" +
+                                                "نوع الحساب: $accountName\n\n" +
+                                                "يمكن لصاحب الرقم تسجيل الدخول بكود التأكيد."
+                                            )
+                                            .setPositiveButton("موافق", null)
+                                            .show()
+                                    }
+                                    .addOnFailureListener { error ->
+
+                                        button.isEnabled = true
+                                        button.text = "إضافة"
+
+                                        saveError(
+                                            "Adding account failed",
+                                            error
+                                        )
+
+                                        showError(
+                                            "فشل إضافة الحساب: ${error.message}"
+                                        )
+                                    }
+                            }
+                        }
+                        .addOnFailureListener { error ->
+
+                            button.isEnabled = true
+                            button.text = "إضافة"
+
+                            saveError(
+                                "Checking registered account failed",
+                                error
+                            )
+
+                            showError(
+                                "تعذر التحقق من الرقم: ${error.message}"
+                            )
+                        }
+                }
+        }
+
+        dialog.show()
     }
 
     // =========================
@@ -901,25 +1145,32 @@ class MainActivity : Activity() {
         setContentView(scroll)
     }
 
+    // نهاية الجزء الثاني
+    
     // =========================
-    // لوحة الإدارة
+    // لوحة تحكم الإدارة
     // =========================
 
     private fun showAdminScreen() {
+
+        if (!isAdminUser()) {
+            showError("غير مسموح بالدخول")
+            return
+        }
+
         val main = createLayout()
         val scroll = ScrollView(this)
         scroll.addView(main)
 
-        fun addTitle(text: String, size: Float) {
-            val view = TextView(this).apply {
-                this.text = text
-                textSize = size
-                setTextColor(Color.YELLOW)
-                gravity = Gravity.CENTER
-                setPadding(10, 15, 10, 15)
-            }
-            main.addView(view)
+        val title = TextView(this).apply {
+            text = "لوحة تحكم إدارة مشوارك"
+            textSize = 25f
+            setTextColor(Color.YELLOW)
+            gravity = Gravity.CENTER
+            setPadding(10, 20, 10, 25)
         }
+
+        main.addView(title)
 
         fun addButton(text: String, action: () -> Unit) {
             val button = Button(this).apply {
@@ -927,41 +1178,49 @@ class MainActivity : Activity() {
                 textSize = 18f
                 setTextColor(Color.rgb(10, 35, 70))
                 setBackgroundColor(Color.YELLOW)
+                setPadding(10, 12, 10, 12)
             }
 
-            main.addView(button)
-            button.setOnClickListener { action() }
+            main.addView(
+                button,
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    setMargins(0, 8, 0, 8)
+                }
+            )
+
+            button.setOnClickListener {
+                action()
+            }
         }
 
-        addTitle("مشوارك", 36f)
-        addTitle("لوحة تحكم الإدارة", 25f)
-        addTitle("أهلاً بك يا مدير النظام", 20f)
+        addButton("➕ إضافة حساب جديد") {
+            addAccountDialog()
+        }
 
-        addButton("إدارة السائقين وطلبات التسجيل") {
+        addButton("🚕 طلبات تسجيل السائقين") {
             showPendingDrivers()
         }
-addButton("➕ إضافة حساب جديد") {
-    addAccountDialog()
-}
-        addButton("إدارة الركاب") {
+
+        addButton("👥 إدارة الركاب") {
             showPassengers()
         }
 
-        addButton("متابعة الرحلات") {
+        addButton("🚗 إدارة الرحلات") {
             showTrips()
         }
 
-        addButton("التقارير والإحصائيات") {
+        addButton("📊 التقارير والإحصائيات") {
             showReports()
         }
 
-        val logout = Button(this).apply {
-            text = "تسجيل الخروج"
+        addButton("🔄 تحديث لوحة الإدارة") {
+            showAdminScreen()
         }
 
-        main.addView(logout)
-
-        logout.setOnClickListener {
+        addButton("تسجيل الخروج") {
             auth.signOut()
             checkingAccount = false
             selectedAccountType = "auto"
@@ -972,208 +1231,236 @@ addButton("➕ إضافة حساب جديد") {
     }
 
     // =========================
+    // التحقق من المدير
+    // =========================
+
+    private fun isAdminUser(): Boolean {
+        return auth.currentUser?.uid == adminUid
+    }
+
+    // =========================
     // عرض طلبات السائقين
     // =========================
 
     private fun showPendingDrivers() {
-        val progress = AlertDialog.Builder(this)
-            .setTitle("طلبات السائقين")
-            .setMessage("جارٍ تحميل الطلبات...")
-            .setCancelable(false)
-            .create()
 
-        progress.show()
+        if (!isAdminUser()) {
+            showError("غير مسموح بالدخول")
+            return
+        }
+
+        val main = createLayout()
+        val scroll = ScrollView(this)
+        scroll.addView(main)
+
+        val title = TextView(this).apply {
+            text = "طلبات تسجيل السائقين"
+            textSize = 24f
+            setTextColor(Color.YELLOW)
+            gravity = Gravity.CENTER
+            setPadding(10, 20, 10, 20)
+        }
+
+        main.addView(title)
+
+        val back = Button(this).apply {
+            text = "العودة للإدارة"
+        }
+
+        main.addView(back)
+
+        back.setOnClickListener {
+            showAdminScreen()
+        }
+
+        setContentView(scroll)
 
         db.collection("drivers")
             .whereEqualTo("status", "pending")
             .get()
             .addOnSuccessListener { result ->
-                progress.dismiss()
 
                 if (result.isEmpty) {
-                    AlertDialog.Builder(this)
-                        .setTitle("طلبات السائقين")
-                        .setMessage("لا توجد طلبات تسجيل معلقة حاليًا.")
-                        .setPositiveButton("موافق", null)
-                        .show()
+                    val empty = TextView(this).apply {
+                        text = "لا توجد طلبات سائقين جديدة"
+                        textSize = 18f
+                        setTextColor(Color.WHITE)
+                        gravity = Gravity.CENTER
+                        setPadding(10, 30, 10, 30)
+                    }
+
+                    main.addView(empty)
                     return@addOnSuccessListener
                 }
 
-                val container = LinearLayout(this).apply {
-                    orientation = LinearLayout.VERTICAL
-                    setPadding(20, 10, 20, 10)
-                }
+                for (document in result) {
 
-                result.documents.forEach { document ->
+                    val name = document.getString("name") ?: "بدون اسم"
+                    val phone = document.getString("phone") ?: ""
+                    val vehicle = document.getString("vehicleType") ?: ""
+                    val plate = document.getString("plateNumber") ?: ""
 
-                    val driverName =
-                        document.getString("name") ?: "بدون اسم"
-
-                    val driverPhone =
-                        document.getString("phone") ?: "غير مسجل"
-
-                    val vehicle =
-                        document.getString("vehicleType") ?: "غير محدد"
-
-                    val plate =
-                        document.getString("plateNumber") ?: "غير محدد"
-
-                    val info = TextView(this).apply {
+                    val card = TextView(this).apply {
                         text =
-                            "اسم السائق: $driverName\n" +
-                            "الهاتف: $driverPhone\n" +
-                            "نوع المركبة: $vehicle\n" +
+                            "الاسم: $name\n" +
+                            "الهاتف: $phone\n" +
+                            "المركبة: $vehicle\n" +
                             "رقم اللوحة: $plate"
 
                         textSize = 17f
-                        setTextColor(Color.BLACK)
-                        setPadding(10, 15, 10, 15)
+                        setTextColor(Color.WHITE)
+                        setPadding(15, 20, 15, 20)
+                        setBackgroundColor(Color.rgb(25, 55, 90))
                     }
 
-                    container.addView(info)
+                    main.addView(card)
 
-                    val buttons = LinearLayout(this).apply {
-                        orientation = LinearLayout.HORIZONTAL
+                    val accept = Button(this).apply {
+                        text = "قبول السائق"
                     }
 
-                    val approve = Button(this).apply {
-                        text = "موافقة"
+                    main.addView(accept)
+
+                    accept.setOnClickListener {
+                        confirmDriverDecision(document.id, true)
                     }
 
                     val reject = Button(this).apply {
-                        text = "رفض"
+                        text = "رفض الطلب"
                     }
 
-                    buttons.addView(
-                        approve,
-                        LinearLayout.LayoutParams(
-                            0,
-                            LinearLayout.LayoutParams.WRAP_CONTENT,
-                            1f
-                        )
-                    )
-
-                    buttons.addView(
-                        reject,
-                        LinearLayout.LayoutParams(
-                            0,
-                            LinearLayout.LayoutParams.WRAP_CONTENT,
-                            1f
-                        )
-                    )
-
-                    container.addView(buttons)
-
-                    val divider = TextView(this).apply {
-                        text = "ــــــــــــــــــــــــــــ"
-                        gravity = Gravity.CENTER
-                        setTextColor(Color.GRAY)
-                    }
-
-                    container.addView(divider)
-
-                    approve.setOnClickListener {
-                        confirmDriverDecision(
-                            document.id,
-                            "approved",
-                            "الموافقة على السائق"
-                        )
-                    }
+                    main.addView(reject)
 
                     reject.setOnClickListener {
-                        confirmDriverDecision(
-                            document.id,
-                            "rejected",
-                            "رفض السائق"
-                        )
+                        confirmDriverDecision(document.id, false)
                     }
                 }
-
-                val scroll = ScrollView(this)
-                scroll.addView(container)
-
-                AlertDialog.Builder(this)
-                    .setTitle("طلبات السائقين المعلقة")
-                    .setView(scroll)
-                    .setPositiveButton("إغلاق", null)
-                    .show()
             }
             .addOnFailureListener { error ->
-                progress.dismiss()
-                saveError("Loading drivers failed", error)
-                showError("تعذر تحميل طلبات السائقين: ${error.message}")
+                saveError("Loading pending drivers failed", error)
+                showError("فشل تحميل طلبات السائقين: ${error.message}")
             }
     }
 
     // =========================
-    // الموافقة أو الرفض
+    // قبول أو رفض السائق
     // =========================
 
     private fun confirmDriverDecision(
         driverId: String,
-        newStatus: String,
-        title: String
+        accepted: Boolean
     ) {
+
+        if (!isAdminUser()) {
+            showError("غير مسموح بتنفيذ العملية")
+            return
+        }
+
+        val newStatus = if (accepted) "approved" else "rejected"
+
         AlertDialog.Builder(this)
-            .setTitle(title)
-            .setMessage("هل أنت متأكد من تنفيذ هذا القرار؟")
-            .setNegativeButton("إلغاء", null)
+            .setTitle("تأكيد القرار")
+            .setMessage(
+                if (accepted)
+                    "هل تريد قبول السائق؟"
+                else
+                    "هل تريد رفض طلب السائق؟"
+            )
             .setPositiveButton("تأكيد") { _, _ ->
 
                 db.collection("drivers")
                     .document(driverId)
                     .update("status", newStatus)
                     .addOnSuccessListener {
-                        showError(
-                            if (newStatus == "approved")
-                                "تمت الموافقة على السائق"
-                            else
-                                "تم رفض طلب السائق"
-                        )
-
+                        showError("تم تنفيذ القرار بنجاح")
                         showPendingDrivers()
                     }
                     .addOnFailureListener { error ->
                         saveError("Driver decision failed", error)
-                        showError("تعذر تنفيذ القرار: ${error.message}")
+                        showError("فشل تنفيذ القرار: ${error.message}")
                     }
             }
+            .setNegativeButton("إلغاء", null)
             .show()
     }
-// نهاية الجزء الثاني
+
     // =========================
     // عرض الركاب
     // =========================
 
     private fun showPassengers() {
+
+        if (!isAdminUser()) {
+            showError("غير مسموح بالدخول")
+            return
+        }
+
+        val main = createLayout()
+        val scroll = ScrollView(this)
+        scroll.addView(main)
+
+        val title = TextView(this).apply {
+            text = "إدارة الركاب"
+            textSize = 24f
+            setTextColor(Color.YELLOW)
+            gravity = Gravity.CENTER
+            setPadding(10, 20, 10, 20)
+        }
+
+        main.addView(title)
+
+        val back = Button(this).apply {
+            text = "العودة للإدارة"
+        }
+
+        main.addView(back)
+
+        back.setOnClickListener {
+            showAdminScreen()
+        }
+
+        setContentView(scroll)
+
         db.collection("users")
+            .whereEqualTo("role", "passenger")
             .get()
             .addOnSuccessListener { result ->
 
-                val message = StringBuilder()
-
                 if (result.isEmpty) {
-                    message.append("لا يوجد ركاب مسجلون")
-                } else {
-                    for (document in result) {
-                        val phone = document.getString("phone") ?: "غير متاح"
-                        message.append("رقم الهاتف: $phone\n")
-                        message.append("رقم الحساب: ${document.id}\n")
-                        message.append("----------------------\n")
+                    val empty = TextView(this).apply {
+                        text = "لا يوجد ركاب مسجلون"
+                        textSize = 18f
+                        setTextColor(Color.WHITE)
+                        gravity = Gravity.CENTER
+                        setPadding(10, 30, 10, 30)
                     }
+
+                    main.addView(empty)
+                    return@addOnSuccessListener
                 }
 
-                AlertDialog.Builder(this)
-                    .setTitle("الركاب المسجلون")
-                    .setMessage(message.toString())
-                    .setPositiveButton("رجوع") { _, _ ->
-                        showAdminScreen()
+                for (document in result) {
+
+                    val phone = document.getString("phone") ?: "غير متوفر"
+                    val status = document.getString("status") ?: "غير محدد"
+
+                    val item = TextView(this).apply {
+                        text =
+                            "رقم الهاتف: $phone\n" +
+                            "الحالة: $status"
+
+                        textSize = 17f
+                        setTextColor(Color.WHITE)
+                        setPadding(15, 20, 15, 20)
+                        setBackgroundColor(Color.rgb(25, 55, 90))
                     }
-                    .show()
+
+                    main.addView(item)
+                }
             }
             .addOnFailureListener { error ->
                 saveError("Loading passengers failed", error)
-                showError("تعذر تحميل الركاب: ${error.message}")
+                showError("فشل تحميل الركاب: ${error.message}")
             }
     }
 
@@ -1182,54 +1469,130 @@ addButton("➕ إضافة حساب جديد") {
     // =========================
 
     private fun showTrips() {
+
+        if (!isAdminUser()) {
+            showError("غير مسموح بالدخول")
+            return
+        }
+
+        val main = createLayout()
+        val scroll = ScrollView(this)
+        scroll.addView(main)
+
+        val title = TextView(this).apply {
+            text = "إدارة الرحلات"
+            textSize = 24f
+            setTextColor(Color.YELLOW)
+            gravity = Gravity.CENTER
+            setPadding(10, 20, 10, 20)
+        }
+
+        main.addView(title)
+
+        val back = Button(this).apply {
+            text = "العودة للإدارة"
+        }
+
+        main.addView(back)
+
+        back.setOnClickListener {
+            showAdminScreen()
+        }
+
+        setContentView(scroll)
+
         db.collection("trips")
             .get()
             .addOnSuccessListener { result ->
 
                 if (result.isEmpty) {
-                    AlertDialog.Builder(this)
-                        .setTitle("الرحلات")
-                        .setMessage("لا توجد رحلات مسجلة")
-                        .setPositiveButton("رجوع") { _, _ ->
-                            showAdminScreen()
-                        }
-                        .show()
+                    val empty = TextView(this).apply {
+                        text = "لا توجد رحلات حالياً"
+                        textSize = 18f
+                        setTextColor(Color.WHITE)
+                        gravity = Gravity.CENTER
+                        setPadding(10, 30, 10, 30)
+                    }
+
+                    main.addView(empty)
                     return@addOnSuccessListener
                 }
 
-                val trips = result.documents
+                for (document in result) {
 
-                val items = trips.map { document ->
+                    val status = document.getString("status") ?: "غير محدد"
+                    val passenger = document.getString("passengerPhone")
+                        ?: document.getString("phone")
+                        ?: "غير متوفر"
 
-                    val pickup = document.getString("pickup") ?: "غير محدد"
+                    val pickup = document.getString("pickup")
+                        ?: document.getString("from")
+                        ?: "غير محدد"
 
-                    val destination =
-                        document.getString("destination") ?: "غير محدد"
+                    val destination = document.getString("destination")
+                        ?: document.getString("to")
+                        ?: "غير محدد"
 
-                    val status =
-                        document.getString("status") ?: "غير محدد"
+                    val item = TextView(this).apply {
+                        text =
+                            "رقم الرحلة: ${document.id}\n" +
+                            "الراكب: $passenger\n" +
+                            "من: $pickup\n" +
+                            "إلى: $destination\n" +
+                            "الحالة: $status"
 
-                    val vehicle =
-                        document.getString("vehicleType") ?: "غير محدد"
-
-                    "من: $pickup\nإلى: $destination\nالوسيلة: $vehicle\nالحالة: $status"
-
-                }.toTypedArray()
-
-                AlertDialog.Builder(this)
-                    .setTitle("جميع الرحلات")
-                    .setItems(items) { _, which ->
-                        val selectedTrip = trips[which]
-                        showTripDetails(selectedTrip.id)
+                        textSize = 16f
+                        setTextColor(Color.WHITE)
+                        setPadding(15, 20, 15, 20)
+                        setBackgroundColor(Color.rgb(25, 55, 90))
                     }
-                    .setNegativeButton("رجوع") { _, _ ->
-                        showAdminScreen()
+
+                    main.addView(item)
+
+                    val detailsButton = Button(this).apply {
+                        text = "تفاصيل الرحلة"
                     }
-                    .show()
+
+                    main.addView(detailsButton)
+
+                    detailsButton.setOnClickListener {
+                        showTripDetails(document.id)
+                    }
+
+                    val assignButton = Button(this).apply {
+                        text = "تعيين سائق"
+                    }
+
+                    main.addView(assignButton)
+
+                    assignButton.setOnClickListener {
+                        assignDriverToTrip(document.id)
+                    }
+
+                    val finishButton = Button(this).apply {
+                        text = "إنهاء الرحلة"
+                    }
+
+                    main.addView(finishButton)
+
+                    finishButton.setOnClickListener {
+                        updateTripStatus(document.id, "completed")
+                    }
+
+                    val cancelButton = Button(this).apply {
+                        text = "إلغاء الرحلة"
+                    }
+
+                    main.addView(cancelButton)
+
+                    cancelButton.setOnClickListener {
+                        updateTripStatus(document.id, "cancelled")
+                    }
+                }
             }
             .addOnFailureListener { error ->
                 saveError("Loading trips failed", error)
-                showError("تعذر تحميل الرحلات: ${error.message}")
+                showError("فشل تحميل الرحلات: ${error.message}")
             }
     }
 
@@ -1238,6 +1601,12 @@ addButton("➕ إضافة حساب جديد") {
     // =========================
 
     private fun showTripDetails(tripId: String) {
+
+        if (!isAdminUser()) {
+            showError("غير مسموح بالدخول")
+            return
+        }
+
         db.collection("trips")
             .document(tripId)
             .get()
@@ -1248,43 +1617,20 @@ addButton("➕ إضافة حساب جديد") {
                     return@addOnSuccessListener
                 }
 
-                val pickup = document.getString("pickup") ?: ""
-                val destination = document.getString("destination") ?: ""
-                val status = document.getString("status") ?: ""
-                val vehicle = document.getString("vehicleType") ?: ""
-
-                val passengerPhone =
-                    document.getString("passengerPhone") ?: "غير متاح"
-
-                val driverUid =
-                    document.getString("driverUid") ?: "لم يتم تعيين سائق"
-
-                val details =
-                    "رقم الرحلة:\n$tripId\n\n" +
-                    "الراكب: $passengerPhone\n\n" +
-                    "وسيلة المواصلات: $vehicle\n\n" +
-                    "مكان الركوب: $pickup\n\n" +
-                    "الوجهة: $destination\n\n" +
-                    "الحالة: $status\n\n" +
-                    "السائق: $driverUid"
+                val details = document.data
+                    ?.entries
+                    ?.joinToString("\n") { entry ->
+                        "${entry.key}: ${entry.value}"
+                    } ?: "لا توجد تفاصيل"
 
                 AlertDialog.Builder(this)
                     .setTitle("تفاصيل الرحلة")
                     .setMessage(details)
-                    .setPositiveButton("تغيير الحالة") { _, _ ->
-                        updateTripStatus(tripId)
-                    }
-                    .setNeutralButton("تعيين سائق") { _, _ ->
-                        assignDriverToTrip(tripId)
-                    }
-                    .setNegativeButton("رجوع") { _, _ ->
-                        showTrips()
-                    }
+                    .setPositiveButton("موافق", null)
                     .show()
             }
             .addOnFailureListener { error ->
-                saveError("Trip details failed", error)
-                showError("تعذر عرض تفاصيل الرحلة")
+                showError("تعذر تحميل التفاصيل: ${error.message}")
             }
     }
 
@@ -1294,96 +1640,103 @@ addButton("➕ إضافة حساب جديد") {
 
     private fun assignDriverToTrip(tripId: String) {
 
+        if (!isAdminUser()) {
+            showError("غير مسموح بالدخول")
+            return
+        }
+
         db.collection("drivers")
             .whereEqualTo("status", "approved")
             .get()
             .addOnSuccessListener { result ->
 
                 if (result.isEmpty) {
-                    showError("لا يوجد سائقون مقبولون حاليًا")
+                    showError("لا يوجد سائقون مقبولون حالياً")
                     return@addOnSuccessListener
                 }
 
                 val drivers = result.documents
 
-                val driverNames = drivers.map { driver ->
-                    val name = driver.getString("name") ?: "سائق"
+                val names = drivers.map { driver ->
+                    val name = driver.getString("name") ?: "بدون اسم"
                     val phone = driver.getString("phone") ?: ""
                     "$name - $phone"
                 }.toTypedArray()
 
                 AlertDialog.Builder(this)
-                    .setTitle("اختيار السائق")
-                    .setItems(driverNames) { _, position ->
+                    .setTitle("اختر السائق")
+                    .setItems(names) { _, which ->
 
-                        val driver = drivers[position]
+                        val driver = drivers[which]
+
+                        val data = hashMapOf<String, Any>(
+                            "driverId" to driver.id,
+                            "driverName" to (driver.getString("name") ?: ""),
+                            "driverPhone" to (driver.getString("phone") ?: ""),
+                            "status" to "accepted",
+                            "assignedAt" to FieldValue.serverTimestamp()
+                        )
 
                         db.collection("trips")
                             .document(tripId)
-                            .update(
-                                mapOf(
-                                    "driverUid" to driver.id,
-                                    "status" to "assigned"
-                                )
-                            )
+                            .update(data as Map<String, Any>)
                             .addOnSuccessListener {
                                 showError("تم تعيين السائق بنجاح")
-                                showTripDetails(tripId)
+                                showTrips()
                             }
                             .addOnFailureListener { error ->
-                                saveError("Assign driver failed", error)
-                                showError("تعذر تعيين السائق")
+                                saveError("Assigning driver failed", error)
+                                showError("فشل تعيين السائق: ${error.message}")
                             }
                     }
                     .setNegativeButton("إلغاء", null)
                     .show()
             }
             .addOnFailureListener { error ->
-                saveError("Loading approved drivers failed", error)
-                showError("تعذر تحميل السائقين")
+                showError("تعذر تحميل السائقين: ${error.message}")
             }
     }
 
     // =========================
-    // تغيير حالة الرحلة
+    // تحديث حالة الرحلة
     // =========================
 
-    private fun updateTripStatus(tripId: String) {
+    private fun updateTripStatus(
+        tripId: String,
+        status: String
+    ) {
 
-        val statuses = arrayOf(
-            "في انتظار سائق",
-            "تم تعيين سائق",
-            "السائق في الطريق",
-            "بدأت الرحلة",
-            "انتهت الرحلة",
-            "تم إلغاء الرحلة"
-        )
+        if (!isAdminUser()) {
+            showError("غير مسموح بتنفيذ العملية")
+            return
+        }
 
-        val values = arrayOf(
-            "requested",
-            "assigned",
-            "driver_on_way",
-            "started",
-            "completed",
-            "cancelled"
-        )
+        val message = when (status) {
+            "completed" -> "هل تريد إنهاء الرحلة؟"
+            "cancelled" -> "هل تريد إلغاء الرحلة؟"
+            else -> "هل تريد تحديث حالة الرحلة؟"
+        }
 
         AlertDialog.Builder(this)
-            .setTitle("اختار حالة الرحلة")
-            .setItems(statuses) { _, position ->
-
-                val newStatus = values[position]
+            .setTitle("تأكيد العملية")
+            .setMessage(message)
+            .setPositiveButton("تأكيد") { _, _ ->
 
                 db.collection("trips")
                     .document(tripId)
-                    .update("status", newStatus)
+                    .update(
+                        mapOf(
+                            "status" to status,
+                            "updatedAt" to FieldValue.serverTimestamp()
+                        )
+                    )
                     .addOnSuccessListener {
                         showError("تم تحديث حالة الرحلة")
-                        showTripDetails(tripId)
+                        showTrips()
                     }
                     .addOnFailureListener { error ->
-                        saveError("Update trip status failed", error)
-                        showError("تعذر تحديث حالة الرحلة")
+                        saveError("Updating trip status failed", error)
+                        showError("فشل تحديث الرحلة: ${error.message}")
                     }
             }
             .setNegativeButton("إلغاء", null)
@@ -1391,64 +1744,116 @@ addButton("➕ إضافة حساب جديد") {
     }
 
     // =========================
-    // التقارير
+    // التقارير والإحصائيات
     // =========================
 
     private fun showReports() {
 
-        db.collection("drivers").get()
-            .addOnSuccessListener { drivers ->
+        if (!isAdminUser()) {
+            showError("غير مسموح بالدخول")
+            return
+        }
 
-                db.collection("users").get()
-                    .addOnSuccessListener { users ->
+        val main = createLayout()
+        val scroll = ScrollView(this)
+        scroll.addView(main)
 
-                        db.collection("trips").get()
-                            .addOnSuccessListener { trips ->
+        val title = TextView(this).apply {
+            text = "تقارير وإحصائيات مشوارك"
+            textSize = 24f
+            setTextColor(Color.YELLOW)
+            gravity = Gravity.CENTER
+            setPadding(10, 20, 10, 20)
+        }
 
-                                val approvedDrivers =
-                                    drivers.documents.count {
-                                        it.getString("status") == "approved"
-                                    }
+        main.addView(title)
 
-                                val pendingDrivers =
-                                    drivers.documents.count {
-                                        it.getString("status") == "pending"
-                                    }
+        val reportText = TextView(this).apply {
+            text = "جارٍ تحميل الإحصائيات..."
+            textSize = 18f
+            setTextColor(Color.WHITE)
+            gravity = Gravity.CENTER
+            setPadding(15, 25, 15, 25)
+        }
 
-                                val completedTrips =
-                                    trips.documents.count {
-                                        it.getString("status") == "completed"
-                                    }
+        main.addView(reportText)
 
-                                val message =
-                                    "تقرير تطبيق مشوارك\n\n" +
-                                    "إجمالي السائقين: ${drivers.size()}\n" +
-                                    "السائقون المقبولون: $approvedDrivers\n" +
-                                    "طلبات السائقين المعلقة: $pendingDrivers\n\n" +
-                                    "إجمالي الركاب: ${users.size()}\n" +
-                                    "إجمالي الرحلات: ${trips.size()}\n" +
-                                    "الرحلات المكتملة: $completedTrips"
+        val back = Button(this).apply {
+            text = "العودة للإدارة"
+        }
 
-                                AlertDialog.Builder(this)
-                                    .setTitle("تقارير مشوارك")
-                                    .setMessage(message)
-                                    .setPositiveButton("رجوع") { _, _ ->
-                                        showAdminScreen()
-                                    }
-                                    .show()
-                            }
-                            .addOnFailureListener {
-                                showError("تعذر تحميل بيانات الرحلات")
-                            }
-                    }
-                    .addOnFailureListener {
-                        showError("تعذر تحميل بيانات الركاب")
-                    }
+        main.addView(back)
+
+        back.setOnClickListener {
+            showAdminScreen()
+        }
+
+        setContentView(scroll)
+
+        var passengersCount = 0
+        var driversCount = 0
+        var tripsCount = 0
+        var pendingCount = 0
+
+        var completedRequests = 0
+        var failedRequests = 0
+
+        fun showFinalReport() {
+            if (completedRequests + failedRequests < 3) return
+
+            reportText.text =
+                "إحصائيات التطبيق\n\n" +
+                "عدد الركاب: $passengersCount\n\n" +
+                "عدد السائقين: $driversCount\n\n" +
+                "عدد الرحلات: $tripsCount\n\n" +
+                "طلبات السائقين المعلقة: $pendingCount"
+        }
+
+        db.collection("users")
+            .whereEqualTo("role", "passenger")
+            .get()
+            .addOnSuccessListener {
+                passengersCount = it.size()
+                completedRequests++
+                showFinalReport()
             }
             .addOnFailureListener {
-                showError("تعذر تحميل بيانات السائقين")
+                failedRequests++
+                completedRequests++
+                showFinalReport()
+            }
+
+        db.collection("drivers")
+            .get()
+            .addOnSuccessListener {
+                driversCount = it.size()
+                pendingCount = it.documents.count { document ->
+                    document.getString("status") == "pending"
+                }
+                completedRequests++
+                showFinalReport()
+            }
+            .addOnFailureListener {
+                failedRequests++
+                completedRequests++
+                showFinalReport()
+            }
+
+        db.collection("trips")
+            .get()
+            .addOnSuccessListener {
+                tripsCount = it.size()
+                completedRequests++
+                showFinalReport()
+            }
+            .addOnFailureListener {
+                failedRequests++
+                completedRequests++
+                showFinalReport()
             }
     }
+
+    // نهاية الجزء الثالث
 
     // =========================
     // صلاحيات الموقع
