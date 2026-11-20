@@ -1358,36 +1358,77 @@ class MainActivity : Activity() {
 
         main.addView(request)
 
-        request.setOnClickListener {
+        
+request.setOnClickListener {
 
-            val from = pickup.text.toString().trim()
-            val to = destination.text.toString().trim()
+    val from = pickup.text.toString().trim()
+    val to = destination.text.toString().trim()
 
-            if (transportGroup.checkedRadioButtonId == -1) {
-                showError("اختار وسيلة المواصلات")
-                return@setOnClickListener
-            }
+    if (transportGroup.checkedRadioButtonId == -1) {
+        showError("اختار وسيلة المواصلات")
+        return@setOnClickListener
+    }
 
-            if (from.isEmpty() || to.isEmpty()) {
-                showError("اكتب مكان الركوب والوجهة")
-                return@setOnClickListener
-            }
+    if (from.isEmpty() || to.isEmpty()) {
+        showError("اكتب مكان الركوب والوجهة")
+        return@setOnClickListener
+    }
 
-            val selected = findViewById<RadioButton>(
-                transportGroup.checkedRadioButtonId
-            ).text
+    val currentUser = auth.currentUser
+
+    if (currentUser == null) {
+        showError("سجل دخولك مرة أخرى")
+        showPhoneScreen()
+        return@setOnClickListener
+    }
+
+    val selected = findViewById<RadioButton>(
+        transportGroup.checkedRadioButtonId
+    ).text.toString()
+
+    request.isEnabled = false
+    request.text = "جارٍ إرسال الطلب..."
+
+    val tripData = hashMapOf<String, Any>(
+        "passengerUid" to currentUser.uid,
+        "passengerPhone" to (currentUser.phoneNumber ?: ""),
+        "vehicleType" to selected,
+        "pickup" to from,
+        "destination" to to,
+        "status" to "requested",
+        "createdAt" to FieldValue.serverTimestamp()
+    )
+
+    db.collection("trips")
+        .add(tripData)
+        .addOnSuccessListener { document ->
+
+            request.isEnabled = true
+            request.text = "اطلب مشوار"
 
             AlertDialog.Builder(this)
-                .setTitle("تفاصيل مشوارك")
+                .setTitle("تم إرسال طلبك")
                 .setMessage(
+                    "تم تسجيل طلب الرحلة بنجاح.\n\n" +
+                    "رقم الطلب: ${document.id}\n\n" +
                     "وسيلة المواصلات: $selected\n\n" +
                     "مكان الركوب: $from\n\n" +
                     "الوجهة: $to\n\n" +
-                    "هذا طلب تجريبي، لم يتم إرساله إلى سائق."
+                    "الحالة: في انتظار سائق"
                 )
                 .setPositiveButton("موافق", null)
                 .show()
         }
+        .addOnFailureListener { error ->
+
+            request.isEnabled = true
+            request.text = "اطلب مشوار"
+
+            saveError("Creating trip failed", error)
+
+            showError("تعذر إرسال الطلب: ${error.message}")
+        }
+}
 
         val driverRegister = Button(this).apply {
             text = "🚕 التسجيل كسائق في مشوارك"
