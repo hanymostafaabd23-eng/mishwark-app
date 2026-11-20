@@ -182,14 +182,12 @@ class MainActivity : Activity() {
 
         checkingAccount = true
 
-        // حساب الإدارة
         if (user.uid == adminUid) {
             checkingAccount = false
             showAdminScreen()
             return
         }
 
-        // التحقق من حساب السائق أولاً
         db.collection("drivers")
             .document(user.uid)
             .get()
@@ -206,7 +204,6 @@ class MainActivity : Activity() {
                     return@addOnSuccessListener
                 }
 
-                // لا يوجد حساب سائق، نتحقق من حساب الراكب
                 checkPassengerAccount(user)
             }
             .addOnFailureListener { error ->
@@ -775,16 +772,19 @@ class MainActivity : Activity() {
             showPendingDrivers()
         }
 
+        // تم ربط إدارة الركاب
         addButton("إدارة الركاب") {
-            showError("إدارة الركاب سيتم ربطها في المرحلة التالية")
+            showPassengers()
         }
 
+        // تم ربط متابعة الرحلات
         addButton("متابعة الرحلات") {
-            showError("طلبات الرحلات سيتم ربطها في المرحلة التالية")
+            showTrips()
         }
 
+        // تم ربط التقارير والإحصائيات
         addButton("التقارير والإحصائيات") {
-            showError("التقارير سيتم ربطها في المرحلة التالية")
+            showReports()
         }
 
         val logout = Button(this).apply {
@@ -970,6 +970,550 @@ class MainActivity : Activity() {
                     }
             }
             .show()
+    }
+
+    // =========================
+    // إدارة الركاب
+    // =========================
+
+    private fun showPassengers() {
+        val progress = AlertDialog.Builder(this)
+            .setTitle("إدارة الركاب")
+            .setMessage("جارٍ تحميل حسابات الركاب...")
+            .setCancelable(false)
+            .create()
+
+        progress.show()
+
+        db.collection("users")
+            .whereEqualTo("role", "passenger")
+            .get()
+            .addOnSuccessListener { result ->
+                progress.dismiss()
+
+                if (result.isEmpty) {
+                    AlertDialog.Builder(this)
+                        .setTitle("إدارة الركاب")
+                        .setMessage("لا توجد حسابات ركاب مسجلة.")
+                        .setPositiveButton("رجوع") {
+                            _, _ -> showAdminScreen()
+                        }
+                        .show()
+                    return@addOnSuccessListener
+                }
+
+                val container = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    setPadding(15, 10, 15, 10)
+                }
+
+                result.documents.forEach { document ->
+
+                    val phone =
+                        document.getString("phone") ?: "غير مسجل"
+
+                    val status =
+                        document.getString("status") ?: "active"
+
+                    val statusText = when (status) {
+                        "suspended" -> "موقوف"
+                        else -> "نشط"
+                    }
+
+                    val info = TextView(this).apply {
+                        text =
+                            "رقم الهاتف: $phone\n" +
+                            "رقم الحساب: ${document.id}\n" +
+                            "حالة الحساب: $statusText"
+
+                        textSize = 16f
+                        setTextColor(Color.BLACK)
+                        setPadding(10, 15, 10, 10)
+                    }
+
+                    container.addView(info)
+
+                    val actionButton = Button(this).apply {
+                        text = if (status == "suspended")
+                            "إعادة تفعيل الحساب"
+                        else
+                            "إيقاف الحساب"
+                    }
+
+                    container.addView(actionButton)
+
+                    actionButton.setOnClickListener {
+                        val newStatus =
+                            if (status == "suspended")
+                                "active"
+                            else
+                                "suspended"
+
+                        val actionText =
+                            if (newStatus == "suspended")
+                                "إيقاف"
+                            else
+                                "إعادة تفعيل"
+
+                        AlertDialog.Builder(this)
+                            .setTitle("$actionText حساب الراكب")
+                            .setMessage(
+                                "هل تريد $actionText حساب $phone؟"
+                            )
+                            .setNegativeButton("إلغاء", null)
+                            .setPositiveButton("تأكيد") { _, _ ->
+
+                                db.collection("users")
+                                    .document(document.id)
+                                    .update("status", newStatus)
+                                    .addOnSuccessListener {
+                                        showError(
+                                            if (newStatus == "active")
+                                                "تم تفعيل الحساب"
+                                            else
+                                                "تم إيقاف الحساب"
+                                        )
+                                        showPassengers()
+                                    }
+                                    .addOnFailureListener { error ->
+                                        saveError(
+                                            "Passenger status update failed",
+                                            error
+                                        )
+                                        showError(
+                                            "تعذر تعديل الحساب: ${error.message}"
+                                        )
+                                    }
+                            }
+                            .show()
+                    }
+
+                    val divider = TextView(this).apply {
+                        text = "ــــــــــــــــــــــــــــ"
+                        gravity = Gravity.CENTER
+                        setTextColor(Color.GRAY)
+                    }
+
+                    container.addView(divider)
+                }
+
+                val scroll = ScrollView(this)
+                scroll.addView(container)
+
+                AlertDialog.Builder(this)
+                    .setTitle("إدارة الركاب (${result.size()})")
+                    .setView(scroll)
+                    .setPositiveButton("إغلاق", null)
+                    .setNeutralButton("تحديث") { _, _ ->
+                        showPassengers()
+                    }
+                    .show()
+            }
+            .addOnFailureListener { error ->
+                progress.dismiss()
+                saveError("Loading passengers failed", error)
+                showError("تعذر تحميل الركاب: ${error.message}")
+            }
+    }
+
+    // =========================
+    // متابعة الرحلات
+    // =========================
+
+    private fun showTrips() {
+        val progress = AlertDialog.Builder(this)
+            .setTitle("متابعة الرحلات")
+            .setMessage("جارٍ تحميل الرحلات...")
+            .setCancelable(false)
+            .create()
+
+        progress.show()
+
+        db.collection("trips")
+            .get()
+            .addOnSuccessListener { result ->
+                progress.dismiss()
+
+                if (result.isEmpty) {
+                    AlertDialog.Builder(this)
+                        .setTitle("متابعة الرحلات")
+                        .setMessage("لا توجد رحلات مسجلة حاليًا.")
+                        .setPositiveButton("رجوع") {
+                            _, _ -> showAdminScreen()
+                        }
+                        .show()
+                    return@addOnSuccessListener
+                }
+
+                val container = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    setPadding(15, 10, 15, 10)
+                }
+
+                result.documents.forEach { document ->
+
+                    val passengerPhone =
+                        document.getString("passengerPhone") ?: "غير مسجل"
+
+                    val pickup =
+                        document.getString("pickup") ?: "غير محدد"
+
+                    val destination =
+                        document.getString("destination") ?: "غير محدد"
+
+                    val vehicle =
+                        document.getString("vehicleType") ?: "غير محدد"
+
+                    val status =
+                        document.getString("status") ?: "غير معروف"
+
+                    val driverName =
+                        document.getString("driverName") ?: "لم يتم التعيين"
+
+                    val driverPhone =
+                        document.getString("driverPhone") ?: "غير متاح"
+
+                    val statusArabic = when (status) {
+                        "requested" -> "في انتظار سائق"
+                        "accepted" -> "تم قبول الرحلة"
+                        "in_progress" -> "الرحلة جارية"
+                        "completed" -> "مكتملة"
+                        "cancelled" -> "ملغاة"
+                        else -> status
+                    }
+
+                    val info = TextView(this).apply {
+                        text =
+                            "رقم الرحلة: ${document.id}\n" +
+                            "هاتف الراكب: $passengerPhone\n" +
+                            "مكان الركوب: $pickup\n" +
+                            "الوجهة: $destination\n" +
+                            "نوع المركبة: $vehicle\n" +
+                            "السائق: $driverName\n" +
+                            "هاتف السائق: $driverPhone\n" +
+                            "حالة الرحلة: $statusArabic"
+
+                        textSize = 15f
+                        setTextColor(Color.BLACK)
+                        setPadding(10, 15, 10, 10)
+                    }
+
+                    container.addView(info)
+
+                    val assignButton = Button(this).apply {
+                        text = "تعيين سائق للرحلة"
+                    }
+
+                    container.addView(assignButton)
+
+                    assignButton.setOnClickListener {
+                        assignDriverToTrip(document.id)
+                    }
+
+                    val statusButton = Button(this).apply {
+                        text = "تغيير حالة الرحلة"
+                    }
+
+                    container.addView(statusButton)
+
+                    statusButton.setOnClickListener {
+                        updateTripStatus(document.id)
+                    }
+
+                    val divider = TextView(this).apply {
+                        text = "ــــــــــــــــــــــــــــ"
+                        gravity = Gravity.CENTER
+                        setTextColor(Color.GRAY)
+                    }
+
+                    container.addView(divider)
+                }
+
+                val scroll = ScrollView(this)
+                scroll.addView(container)
+
+                AlertDialog.Builder(this)
+                    .setTitle("الرحلات (${result.size()})")
+                    .setView(scroll)
+                    .setPositiveButton("إغلاق", null)
+                    .setNeutralButton("تحديث") { _, _ ->
+                        showTrips()
+                    }
+                    .show()
+            }
+            .addOnFailureListener { error ->
+                progress.dismiss()
+                saveError("Loading trips failed", error)
+                showError("تعذر تحميل الرحلات: ${error.message}")
+            }
+    }
+
+    // =========================
+    // تعيين سائق للرحلة
+    // =========================
+
+    private fun assignDriverToTrip(tripId: String) {
+
+        db.collection("drivers")
+            .whereEqualTo("status", "approved")
+            .get()
+            .addOnSuccessListener { result ->
+
+                if (result.isEmpty) {
+                    showError("لا يوجد سائقون مقبولون حاليًا")
+                    return@addOnSuccessListener
+                }
+
+                val drivers = result.documents
+
+                val driverNames = drivers.map { driver ->
+                    val name = driver.getString("name") ?: "بدون اسم"
+                    val phone = driver.getString("phone") ?: "بدون هاتف"
+                    "$name - $phone"
+                }.toTypedArray()
+
+                AlertDialog.Builder(this)
+                    .setTitle("اختيار السائق")
+                    .setItems(driverNames) { _, which ->
+
+                        val selectedDriver = drivers[which]
+
+                        val driverName =
+                            selectedDriver.getString("name") ?: "بدون اسم"
+
+                        val driverPhone =
+                            selectedDriver.getString("phone") ?: ""
+
+                        val tripUpdate = hashMapOf<String, Any>(
+                            "driverUid" to selectedDriver.id,
+                            "driverName" to driverName,
+                            "driverPhone" to driverPhone,
+                            "status" to "accepted",
+                            "acceptedAt" to FieldValue.serverTimestamp()
+                        )
+
+                        db.collection("trips")
+                            .document(tripId)
+                            .update(tripUpdate)
+                            .addOnSuccessListener {
+                                showError(
+                                    "تم تعيين السائق $driverName للرحلة"
+                                )
+                                showTrips()
+                            }
+                            .addOnFailureListener { error ->
+                                saveError("Assign driver failed", error)
+                                showError(
+                                    "تعذر تعيين السائق: ${error.message}"
+                                )
+                            }
+                    }
+                    .setNegativeButton("إلغاء", null)
+                    .show()
+            }
+            .addOnFailureListener { error ->
+                saveError("Loading approved drivers failed", error)
+                showError("تعذر تحميل السائقين: ${error.message}")
+            }
+    }
+
+    // =========================
+    // تغيير حالة الرحلة
+    // =========================
+
+    private fun updateTripStatus(tripId: String) {
+
+        val statusValues = arrayOf(
+            "في انتظار سائق",
+            "تم قبول الرحلة",
+            "الرحلة جارية",
+            "مكتملة",
+            "ملغاة"
+        )
+
+        val statusKeys = arrayOf(
+            "requested",
+            "accepted",
+            "in_progress",
+            "completed",
+            "cancelled"
+        )
+
+        AlertDialog.Builder(this)
+            .setTitle("اختار حالة الرحلة")
+            .setItems(statusValues) { _, which ->
+
+                val newStatus = statusKeys[which]
+
+                val updateData = hashMapOf<String, Any>(
+                    "status" to newStatus,
+                    "updatedAt" to FieldValue.serverTimestamp()
+                )
+
+                db.collection("trips")
+                    .document(tripId)
+                    .update(updateData)
+                    .addOnSuccessListener {
+                        showError("تم تحديث حالة الرحلة")
+                        showTrips()
+                    }
+                    .addOnFailureListener { error ->
+                        saveError("Updating trip status failed", error)
+                        showError(
+                            "تعذر تحديث الرحلة: ${error.message}"
+                        )
+                    }
+            }
+            .setNegativeButton("إلغاء", null)
+            .show()
+    }
+
+    // =========================
+    // التقارير والإحصائيات
+    // =========================
+
+    private fun showReports() {
+
+        val progress = AlertDialog.Builder(this)
+            .setTitle("التقارير والإحصائيات")
+            .setMessage("جارٍ تجهيز التقرير...")
+            .setCancelable(false)
+            .create()
+
+        progress.show()
+
+        db.collection("users")
+            .whereEqualTo("role", "passenger")
+            .get()
+            .addOnSuccessListener { passengers ->
+
+                db.collection("drivers")
+                    .get()
+                    .addOnSuccessListener { drivers ->
+
+                        db.collection("trips")
+                            .get()
+                            .addOnSuccessListener { trips ->
+
+                                progress.dismiss()
+
+                                val activePassengers =
+                                    passengers.documents.count {
+                                        (it.getString("status") ?: "active") == "active"
+                                    }
+
+                                val suspendedPassengers =
+                                    passengers.documents.count {
+                                        it.getString("status") == "suspended"
+                                    }
+
+                                val approvedDrivers =
+                                    drivers.documents.count {
+                                        it.getString("status") == "approved"
+                                    }
+
+                                val pendingDrivers =
+                                    drivers.documents.count {
+                                        it.getString("status") == "pending"
+                                    }
+
+                                val rejectedDrivers =
+                                    drivers.documents.count {
+                                        it.getString("status") == "rejected"
+                                    }
+
+                                val requestedTrips =
+                                    trips.documents.count {
+                                        it.getString("status") == "requested"
+                                    }
+
+                                val acceptedTrips =
+                                    trips.documents.count {
+                                        it.getString("status") == "accepted"
+                                    }
+
+                                val runningTrips =
+                                    trips.documents.count {
+                                        it.getString("status") == "in_progress"
+                                    }
+
+                                val completedTrips =
+                                    trips.documents.count {
+                                        it.getString("status") == "completed"
+                                    }
+
+                                val cancelledTrips =
+                                    trips.documents.count {
+                                        it.getString("status") == "cancelled"
+                                    }
+
+                                val report =
+                                    """
+                                    تقرير مشوارك
+                                    =====================
+
+                                    أولاً: الركاب
+
+                                    إجمالي الركاب: ${passengers.size()}
+                                    الحسابات النشطة: $activePassengers
+                                    الحسابات الموقوفة: $suspendedPassengers
+
+                                    ---------------------
+
+                                    ثانياً: السائقون
+
+                                    إجمالي السائقين: ${drivers.size()}
+                                    السائقون المقبولون: $approvedDrivers
+                                    طلبات التسجيل المعلقة: $pendingDrivers
+                                    طلبات التسجيل المرفوضة: $rejectedDrivers
+
+                                    ---------------------
+
+                                    ثالثاً: الرحلات
+
+                                    إجمالي الرحلات: ${trips.size()}
+                                    في انتظار سائق: $requestedTrips
+                                    تم قبولها: $acceptedTrips
+                                    رحلات جارية: $runningTrips
+                                    رحلات مكتملة: $completedTrips
+                                    رحلات ملغاة: $cancelledTrips
+
+                                    =====================
+                                    مشوارك في إيدك
+                                    """.trimIndent()
+
+                                AlertDialog.Builder(this)
+                                    .setTitle("التقارير والإحصائيات")
+                                    .setMessage(report)
+                                    .setPositiveButton("موافق", null)
+                                    .setNeutralButton("تحديث") { _, _ ->
+                                        showReports()
+                                    }
+                                    .show()
+                            }
+                            .addOnFailureListener { error ->
+                                progress.dismiss()
+                                saveError("Reports trips query failed", error)
+                                showError(
+                                    "تعذر تحميل إحصائيات الرحلات: ${error.message}"
+                                )
+                            }
+                    }
+                    .addOnFailureListener { error ->
+                        progress.dismiss()
+                        saveError("Reports drivers query failed", error)
+                        showError(
+                            "تعذر تحميل إحصائيات السائقين: ${error.message}"
+                        )
+                    }
+            }
+            .addOnFailureListener { error ->
+                progress.dismiss()
+                saveError("Reports passengers query failed", error)
+                showError(
+                    "تعذر تحميل إحصائيات الركاب: ${error.message}"
+                )
+            }
     }
 
     // =========================
