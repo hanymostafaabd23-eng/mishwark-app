@@ -634,4 +634,503 @@ class MainActivity : Activity() {
             )
 
             showError(
-                "
+                "حدث خطأ أثناء فتح Google: ${error.message}"
+            )
+        }
+    }
+
+    private fun sendCode(
+        number: String,
+        send: Button
+    ) {
+        send.isEnabled = false
+        send.text = "جارٍ إرسال الكود..."
+
+        try {
+            val callbacks = object : PhoneAuthProvider
+                .OnVerificationStateChangedCallbacks() {
+                override fun onVerificationCompleted(
+                    credential: PhoneAuthCredential
+                ) {
+                    signIn(credential)
+                }
+
+                override fun onVerificationFailed(
+                    e: FirebaseException
+                ) {
+                    saveError(
+                        "Phone verification failed",
+                        e
+                    )
+
+                    runOnUiThread {
+                        send.isEnabled = true
+                        send.text = "إرسال كود التأكيد"
+
+                        showError(
+                            "فشل إرسال الكود: ${e.message}"
+                        )
+                    }
+                }
+
+                override fun onCodeSent(
+                    id: String,
+                    token: PhoneAuthProvider.ForceResendingToken
+                ) {
+                    verificationId = id
+
+                    runOnUiThread {
+                        showCodeScreen()
+                    }
+                }
+
+                override fun onCodeAutoRetrievalTimeOut(
+                    id: String
+                ) {
+                    verificationId = id
+                }
+            }
+
+            val options = PhoneAuthOptions.newBuilder(auth)
+                .setPhoneNumber(number)
+                .setTimeout(60L, TimeUnit.SECONDS)
+                .setActivity(this)
+                .setCallbacks(callbacks)
+                .build()
+
+            PhoneAuthProvider.verifyPhoneNumber(options)
+        } catch (e: Exception) {
+            saveError(
+                "Sending code crashed",
+                e
+            )
+
+            send.isEnabled = true
+            send.text = "إرسال كود التأكيد"
+
+            showError(
+                "حدث خطأ: ${e.message}"
+            )
+        }
+    }
+
+    private fun showCodeScreen() {
+        val layout = createLayout()
+
+        val title = TextView(this).apply {
+            text = "تأكيد رقم الهاتف"
+            textSize = 26f
+            setTextColor(Color.YELLOW)
+            gravity = Gravity.CENTER
+        }
+
+        val code = EditText(this).apply {
+            hint = "أدخل كود SMS"
+            textSize = 20f
+            inputType = InputType.TYPE_CLASS_NUMBER
+            setSingleLine(true)
+            setTextColor(Color.BLACK)
+            setBackgroundColor(Color.WHITE)
+            setPadding(20, 15, 20, 15)
+        }
+
+        val verify = Button(this).apply {
+            text = "تأكيد الدخول"
+        }
+
+        val back = Button(this).apply {
+            text = "العودة"
+        }
+
+        layout.addView(title)
+        layout.addView(code)
+        layout.addView(verify)
+        layout.addView(back)
+
+        setContentView(layout)
+
+        verify.setOnClickListener {
+            val enteredCode = code.text.toString().trim()
+            val id = verificationId
+
+            if (enteredCode.length != 6 || id == null) {
+                showError(
+                    "أدخل كود التأكيد المكون من 6 أرقام"
+                )
+                return@setOnClickListener
+            }
+
+            verify.isEnabled = false
+            verify.text = "جارٍ التحقق..."
+
+            val credential = PhoneAuthProvider.getCredential(
+                id,
+                enteredCode
+            )
+
+            signIn(credential)
+        }
+
+        back.setOnClickListener {
+            showPhoneScreen()
+        }
+    }
+
+    private fun linkGoogleToCurrentUser(
+        credential: AuthCredential,
+        email: String?
+    ) {
+        val user = auth.currentUser
+        if (user == null) {
+            checkingAccount = false
+            showCorrectScreen()
+            return
+        }
+
+        user.linkWithCredential(credential)
+            .addOnCompleteListener(this) { task ->
+                googleCredentialPending = null
+                googleEmailPending = null
+                checkingAccount = false
+
+                if (task.isSuccessful) {
+                    showError("تم ربط حساب Google (${email ?: ""}) بنجاح")
+                } else {
+                    saveError("Linking Google failed", task.exception)
+                    showError("تم تسجيل الدخول، وتعذر ربط Google: ${task.exception?.message}")
+                }
+
+                showCorrectScreen()
+            }
+    }
+
+    private fun signIn(
+        credential: PhoneAuthCredential
+    ) {
+        try {
+            auth.signInWithCredential(credential)
+                .addOnCompleteListener(this) { task ->
+                    if (task.isSuccessful) {
+                        val user = auth.currentUser
+
+                        if (user == null) {
+                            checkingAccount = false
+
+                            showError(
+                                "تعذر قراءة بيانات الحساب"
+                            )
+
+                            return@addOnCompleteListener
+                        }
+
+                        checkingAccount = false
+
+                        val phoneNumber = user.phoneNumber ?: ""
+
+                        if (phoneNumber.isEmpty()) {
+                            auth.signOut()
+
+                            showError(
+                                "لم يتم العثور على رقم الهاتف"
+                            )
+
+                            showRoleSelectionScreen()
+
+                            return@addOnCompleteListener
+                        }
+
+                        db.collection("account_registry")
+                            .document(phoneNumber)
+                            .get(Source.DEFAULT)
+                            .addOnSuccessListener { document ->
+                                if (!document.exists()) {
+                                    auth.signOut()
+
+                                    selectedAccountType = "auto"
+                                    checkingAccount = false
+
+                                    showError(
+                                        "هذا الرقم ($phoneNumber) غير مسجل لدى الإدارة"
+                                    )
+
+                                    showRoleSelectionScreen()
+
+                                    return@addOnSuccessListener
+                                }
+
+                                val role = document.getString("role") ?: ""
+
+                                if (
+                                    role != "driver" &&
+                                    role != "passenger"
+                                ) {
+                                    auth.signOut()
+
+                                    selectedAccountType = "auto"
+                                    checkingAccount = false
+
+                                    showError(
+                                        "نوع الحساب غير صحيح ($role)، راجع الإدارة"
+                                    )
+
+                                    showRoleSelectionScreen()
+
+                                    return@addOnSuccessListener
+                                }
+
+                                selectedAccountType = role
+
+                                val pendingCredential = googleCredentialPending
+
+                                if (pendingCredential != null) {
+                                    linkGoogleToCurrentUser(
+                                        pendingCredential,
+                                        googleEmailPending
+                                    )
+                                } else {
+                                    checkingAccount = false
+
+                                    showError(
+                                        "تم تسجيل الدخول بنجاح"
+                                    )
+
+                                    showCorrectScreen()
+                                }
+                            }
+                            .addOnFailureListener { error ->
+                                checkingAccount = false
+
+                                saveError(
+                                    "Account registry lookup failed for $phoneNumber",
+                                    error
+                                )
+
+                                showError(
+                                    "تعذر التحقق من الحساب: ${error.localizedMessage ?: error.message ?: "راجع الإنترنت أو الصلاحيات"}"
+                                )
+                            }
+                    } else {
+                        checkingAccount = false
+
+                        saveError(
+                            "Phone sign in failed",
+                            task.exception
+                        )
+
+                        showError(
+                            "فشل تسجيل الدخول: " +
+                                "${task.exception?.message}"
+                        )
+                    }
+                }
+        } catch (e: Exception) {
+            checkingAccount = false
+
+            saveError(
+                "Sign in exception",
+                e
+            )
+
+            showError(
+                "حدث خطأ أثناء تسجيل الدخول: ${e.message}"
+            )
+        }
+    }
+
+    private fun showAdminScreen() {
+        val layout = createLayout()
+
+        val title = TextView(this).apply {
+            text = "لوحة إدارة مشوارك"
+            textSize = 26f
+            setTextColor(Color.YELLOW)
+            gravity = Gravity.CENTER
+            setPadding(10, 15, 10, 25)
+        }
+
+        val phoneInput = EditText(this).apply {
+            hint = "رقم الهاتف (مثال: 01xxxxxxxxx)"
+            textSize = 18f
+            inputType = InputType.TYPE_CLASS_PHONE
+            setSingleLine(true)
+            setTextColor(Color.BLACK)
+            setBackgroundColor(Color.WHITE)
+            setPadding(20, 15, 20, 15)
+        }
+
+        val addDriverBtn = Button(this).apply {
+            text = "إضافة سائق في السجل"
+        }
+
+        val addPassengerBtn = Button(this).apply {
+            text = "إضافة راكب في السجل"
+        }
+
+        val logoutBtn = Button(this).apply {
+            text = "تسجيل الخروج"
+        }
+
+        layout.addView(title)
+        layout.addView(phoneInput)
+        layout.addView(addDriverBtn)
+        layout.addView(addPassengerBtn)
+        layout.addView(logoutBtn)
+
+        setContentView(layout)
+
+        val registerPhone = { role: String ->
+            val raw = phoneInput.text.toString().trim()
+            val normalizedPhone = when {
+                raw.startsWith("+20") -> raw
+                raw.matches(Regex("^01[0125][0-9]{8}$")) -> "+20" + raw.drop(1)
+                raw.matches(Regex("^201[0125][0-9]{8}$")) -> "+$raw"
+                else -> ""
+            }
+
+            if (normalizedPhone.isEmpty()) {
+                showError("أدخل رقم مصري صحيح")
+            } else {
+                val data = hashMapOf<String, Any>(
+                    "phone" to normalizedPhone,
+                    "role" to role,
+                    "createdAt" to FieldValue.serverTimestamp()
+                )
+
+                db.collection("account_registry")
+                    .document(normalizedPhone)
+                    .set(data)
+                    .addOnSuccessListener {
+                        showError("تمت إضافة $normalizedPhone كـ $role بنجاح")
+                        phoneInput.text.clear()
+                    }
+                    .addOnFailureListener { e ->
+                        saveError("Adding to account_registry failed", e)
+                        showError("تعذر الإضافة: ${e.message}")
+                    }
+            }
+        }
+
+        addDriverBtn.setOnClickListener { registerPhone("driver") }
+        addPassengerBtn.setOnClickListener { registerPhone("passenger") }
+
+        logoutBtn.setOnClickListener {
+            locationHandler.removeCallbacksAndMessages(null)
+            auth.signOut()
+            selectedAccountType = "auto"
+            showRoleSelectionScreen()
+        }
+    }
+
+    private fun showDriverScreen(status: String) {
+        val layout = createLayout()
+
+        val title = TextView(this).apply {
+            text = "حساب السائق - مشوارك"
+            textSize = 26f
+            setTextColor(Color.YELLOW)
+            gravity = Gravity.CENTER
+            setPadding(10, 15, 10, 15)
+        }
+
+        val statusText = TextView(this).apply {
+            text = "حالة الحساب: $status"
+            textSize = 20f
+            setTextColor(Color.WHITE)
+            gravity = Gravity.CENTER
+            setPadding(10, 10, 10, 25)
+        }
+
+        val logoutBtn = Button(this).apply {
+            text = "تسجيل الخروج"
+        }
+
+        layout.addView(title)
+        layout.addView(statusText)
+        layout.addView(logoutBtn)
+
+        setContentView(layout)
+
+        logoutBtn.setOnClickListener {
+            auth.signOut()
+            selectedAccountType = "auto"
+            showRoleSelectionScreen()
+        }
+    }
+
+    private fun showDriverRegistrationScreen() {
+        val user = auth.currentUser ?: return
+        val layout = createLayout()
+
+        val title = TextView(this).apply {
+            text = "إكمال بيانات السائق"
+            textSize = 24f
+            setTextColor(Color.YELLOW)
+            gravity = Gravity.CENTER
+            setPadding(10, 15, 10, 20)
+        }
+
+        val nameInput = EditText(this).apply {
+            hint = "الاسم الكامل"
+            setTextColor(Color.BLACK)
+            setBackgroundColor(Color.WHITE)
+            setPadding(20, 15, 20, 15)
+        }
+
+        val vehicleInput = EditText(this).apply {
+            hint = "نوع المركبة"
+            setTextColor(Color.BLACK)
+            setBackgroundColor(Color.WHITE)
+            setPadding(20, 15, 20, 15)
+        }
+
+        val plateInput = EditText(this).apply {
+            hint = "رقم اللوحة"
+            setTextColor(Color.BLACK)
+            setBackgroundColor(Color.WHITE)
+            setPadding(20, 15, 20, 15)
+        }
+
+        val submitBtn = Button(this).apply {
+            text = "حفظ بيانات السائق"
+        }
+
+        val logoutBtn = Button(this).apply {
+            text = "تسجيل الخروج"
+        }
+
+        layout.addView(title)
+        layout.addView(nameInput)
+        layout.addView(vehicleInput)
+        layout.addView(plateInput)
+        layout.addView(submitBtn)
+        layout.addView(logoutBtn)
+
+        setContentView(layout)
+
+        submitBtn.setOnClickListener {
+            val name = nameInput.text.toString().trim()
+            val vehicleType = vehicleInput.text.toString().trim()
+            val plateNumber = plateInput.text.toString().trim()
+
+            if (name.isEmpty() || vehicleType.isEmpty() || plateNumber.isEmpty()) {
+                showError("يرجى ملء جميع البيانات")
+                return@setOnClickListener
+            }
+
+            val driverData = hashMapOf<String, Any>(
+                "uid" to user.uid,
+                "name" to name,
+                "phone" to (user.phoneNumber ?: ""),
+                "vehicleType" to vehicleType,
+                "plateNumber" to plateNumber,
+                "status" to "pending",
+                "createdAt" to FieldValue.serverTimestamp()
+            )
+
+            db.collection("drivers")
+                .document(user.uid)
+                .set(driverData)
+                .addOnSuccessListener {
+                    showError("تم إرسال طلب تسجيل السائق بنجاح")
+                    showDriverScreen("pending")
+                }
