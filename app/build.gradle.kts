@@ -27,24 +27,27 @@ android {
     }
 }
 
+
 dependencies {
     implementation(platform("com.google.firebase:firebase-bom:34.5.0"))
 
-    // Firebase Authentication
+    // Firebase
     implementation("com.google.firebase:firebase-auth")
-
-    // Firebase Firestore
     implementation("com.google.firebase:firebase-firestore")
-
-    // Firebase Realtime Database
     implementation("com.google.firebase:firebase-database")
 
     // AndroidX
     implementation("androidx.core:core:1.15.0")
 
-    // MapLibre Maps
+    // Google Credential Manager
+    implementation("androidx.credentials:credentials:1.5.0")
+    implementation("androidx.credentials:credentials-play-services-auth:1.5.0")
+    implementation("com.google.android.libraries.identity.googleid:googleid:1.1.1")
+
+    // MapLibre
     implementation("org.maplibre.gl:android-sdk:11.11.0")
 
     // OkHttp
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
 }
+
