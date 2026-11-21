@@ -1,6 +1,7 @@
 {
   "project_info": {
     "project_number": "369596763433",
+    "firebase_url": "https://mishwark-cee95-default-rtdb.firebaseio.com",
     "project_id": "mishwark-cee95",
     "storage_bucket": "mishwark-cee95.firebasestorage.app"
   },
@@ -12,7 +13,20 @@
           "package_name": "com.mishwark.app"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "369596763433-u77iqq0soe5tkeatm53bftbqhmgne49h.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.mishwark.app",
+            "certificate_hash": "bd55b7551869646a98676b85a01a994c8cf9b685"
+          }
+        },
+        {
+          "client_id": "369596763433-2sopu0miip86ab3dp2m8cb2fn47adu6u.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyD4U2321y3qC4Dp5nskdTGfOaCtQZbPeE0"
@@ -20,7 +34,12 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "369596763433-2sopu0miip86ab3dp2m8cb2fn47adu6u.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
         }
       }
     }
