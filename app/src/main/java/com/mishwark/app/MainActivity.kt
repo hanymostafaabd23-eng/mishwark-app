@@ -1276,42 +1276,54 @@ class MainActivity : Activity() {
                                             null
                                         )
                                         .show()
-                                }
-                                .addOnFailureListener { error ->
+                                }.addOnFailureListener { error ->
 
-                                    button.isEnabled = true
-                                    button.text = "إضافة"
+    button.isEnabled = true
+    button.text = "إضافة"
 
-                                    saveError(
-                                        "Adding account failed",
-                                        error
-                                    )
+    saveError(
+        "Adding account failed",
+        error
+    )
 
-                                    showError(
-                                        "فشل إضافة الحساب: " +
-                                        "${error.message}"
-                                    )
-                                }
-                        }
-                    }
-                    .addOnFailureListener { error ->
+    val message = when {
+        error.message?.contains("offline", true) == true ||
+        error.message?.contains("unavailable", true) == true ->
+            "الاتصال بقاعدة البيانات غير متاح. تأكد من الإنترنت وحاول مرة أخرى."
 
-                        button.isEnabled = true
-                        button.text = "إضافة"
+        error.message?.contains("permission", true) == true ->
+            "ليس لديك صلاحية إضافة الحساب. راجع صلاحيات Firebase."
 
-                        saveError(
-                            "Checking registered account failed",
-                            error
-                        )
+        else ->
+            "فشل إضافة الحساب:\n${error.message}"
+    }
 
-                        showError(
-                            "تعذر التحقق من الرقم: " +
-                            "${error.message}"
-                        )
-                    }
-            }
-        }
+    showError(message)
+}
+ .addOnFailureListener { error ->
 
+    button.isEnabled = true
+    button.text = "إضافة"
+
+    saveError(
+        "Checking registered account failed",
+        error
+    )
+
+    val message = when {
+        error.message?.contains("offline", true) == true ||
+        error.message?.contains("unavailable", true) == true ->
+            "قاعدة البيانات غير متصلة. تأكد من الإنترنت وحاول مرة أخرى."
+
+        error.message?.contains("permission", true) == true ->
+            "رفض Firebase صلاحية التحقق من الرقم. راجع قواعد الأمان."
+
+        else ->
+            "تعذر التحقق من الرقم:\n${error.message}"
+    }
+
+    showError(message)
+}
         dialog.show()
     }
 
