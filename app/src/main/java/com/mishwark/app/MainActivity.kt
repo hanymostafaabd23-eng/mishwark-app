@@ -34,8 +34,10 @@ import androidx.credentials.GetCredentialResponse
 import androidx.credentials.CustomCredential
 import androidx.credentials.CredentialManagerCallback
 import androidx.credentials.exceptions.GetCredentialException
+import androidx.credentials.exceptions.NoCredentialException
 
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
+import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 
 import okhttp3.OkHttpClient
@@ -682,9 +684,7 @@ class MainActivity : Activity() {
             showRoleSelectionScreen()
         }
     }
-
-
-    // =========================
+        // =========================
     // تسجيل الدخول باستخدام Google
     // =========================
 
@@ -725,144 +725,39 @@ class MainActivity : Activity() {
                         result: GetCredentialResponse
                     ) {
 
-                        try {
-
-                            val credential =
-                                result.credential
-
-                            if (
-                                credential !is CustomCredential ||
-                                credential.type !=
-                                GoogleIdTokenCredential
-                                    .TYPE_GOOGLE_ID_TOKEN_CREDENTIAL
-                            ) {
-
-                                googleButton.isEnabled = true
-
-                                googleButton.text =
-                                    "تسجيل الدخول باستخدام Google"
-
-                                showError(
-                                    "بيانات حساب Google غير صحيحة"
-                                )
-
-                                return
-                            }
-
-                            val googleId =
-                                GoogleIdTokenCredential.createFrom(
-                                    credential.data
-                                )
-
-                            val firebaseCredential =
-                                GoogleAuthProvider.getCredential(
-                                    googleId.idToken,
-                                    null
-                                )
-
-                            googleButton.text =
-                                "جارٍ تسجيل الدخول..."
-
-                            auth.signInWithCredential(
-                                firebaseCredential
-                            )
-                                .addOnCompleteListener(
-                                    this@MainActivity
-                                ) { task ->
-
-                                    googleButton.isEnabled = true
-
-                                    googleButton.text =
-                                        "تسجيل الدخول باستخدام Google"
-
-                                    if (task.isSuccessful) {
-
-                                        val user =
-                                            auth.currentUser
-
-                                        if (user == null) {
-
-                                            showError(
-                                                "تعذر قراءة حساب Google"
-                                            )
-
-                                            return@addOnCompleteListener
-                                        }
-
-                                        checkingAccount = false
-
-                                        showError(
-                                            "تم تسجيل الدخول بنجاح"
-                                        )
-
-                                        when (
-                                            selectedAccountType
-                                        ) {
-
-                                            "passenger" -> {
-                                                checkPassengerAccount(user)
-                                            }
-
-                                            "driver" -> {
-                                                checkDriverAccount(user)
-                                            }
-
-                                            else -> {
-                                                showCorrectScreen()
-                                            }
-                                        }
-
-                                    } else {
-
-                                        saveError(
-                                            "Google Firebase sign-in failed",
-                                            task.exception
-                                        )
-
-                                        showError(
-                                            "فشل تسجيل الدخول: " +
-                                            "${task.exception?.message}"
-                                        )
-                                    }
-                                }
-
-                        } catch (error: Exception) {
-
-                            googleButton.isEnabled = true
-
-                            googleButton.text =
-                                "تسجيل الدخول باستخدام Google"
-
-                            saveError(
-                                "Reading Google credential failed",
-                                error
-                            )
-
-                            showError(
-                                "تعذر قراءة حساب Google: " +
-                                "${error.message}"
-                            )
-                        }
+                        handleGoogleCredential(
+                            result,
+                            googleButton
+                        )
                     }
 
                     override fun onError(
                         error: GetCredentialException
                     ) {
 
-                        googleButton.isEnabled = true
-
-                        googleButton.text =
-                            "تسجيل الدخول باستخدام Google"
-
                         saveError(
                             "Google credential request failed",
                             error
                         )
 
-                        showError(
-                            "تعذر فتح حسابات Google: " +
-                            "${error.message}"
-                        )
+                        if (error is NoCredentialException) {
+
+                            startGoogleSignInFallback(
+                                googleButton
+                            )
+
+                        } else {
+
+                            googleButton.isEnabled = true
+
+                            googleButton.text =
+                                "تسجيل الدخول باستخدام Google"
+
+                            showError(
+                                "تعذر فتح حسابات Google: " +
+                                "${error.message}"
+                            )
+                        }
                     }
                 }
             )
@@ -885,7 +780,222 @@ class MainActivity : Activity() {
             )
         }
     }
-        // =========================
+
+
+    // =========================
+    // الطريقة البديلة لتسجيل Google
+    // =========================
+
+    private fun startGoogleSignInFallback(
+        googleButton: Button
+    ) {
+
+        googleButton.isEnabled = false
+        googleButton.text = "جارٍ فتح تسجيل Google..."
+
+        try {
+
+            val googleOption =
+                GetSignInWithGoogleOption.Builder(
+                    getString(R.string.default_web_client_id)
+                )
+                    .build()
+
+            val request =
+                GetCredentialRequest.Builder()
+                    .addCredentialOption(googleOption)
+                    .build()
+
+            credentialManager.getCredentialAsync(
+                this,
+                request,
+                null,
+                mainExecutor,
+                object : CredentialManagerCallback<
+                    GetCredentialResponse,
+                    GetCredentialException
+                > {
+
+                    override fun onResult(
+                        result: GetCredentialResponse
+                    ) {
+
+                        handleGoogleCredential(
+                            result,
+                            googleButton
+                        )
+                    }
+
+                    override fun onError(
+                        error: GetCredentialException
+                    ) {
+
+                        googleButton.isEnabled = true
+
+                        googleButton.text =
+                            "تسجيل الدخول باستخدام Google"
+
+                        saveError(
+                            "Google fallback sign-in failed",
+                            error
+                        )
+
+                        showError(
+                            "تعذر تسجيل الدخول بجوجل: " +
+                            "${error.message}"
+                        )
+                    }
+                }
+            )
+
+        } catch (error: Exception) {
+
+            googleButton.isEnabled = true
+
+            googleButton.text =
+                "تسجيل الدخول باستخدام Google"
+
+            saveError(
+                "Google fallback exception",
+                error
+            )
+
+            showError(
+                "حدث خطأ في الطريقة البديلة: " +
+                "${error.message}"
+            )
+        }
+    }
+
+
+    // =========================
+    // معالجة بيانات حساب Google
+    // =========================
+
+    private fun handleGoogleCredential(
+        result: GetCredentialResponse,
+        googleButton: Button
+    ) {
+
+        try {
+
+            val credential =
+                result.credential
+
+            if (
+                credential !is CustomCredential ||
+                credential.type !=
+                GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL
+            ) {
+
+                googleButton.isEnabled = true
+
+                googleButton.text =
+                    "تسجيل الدخول باستخدام Google"
+
+                showError(
+                    "بيانات حساب Google غير صحيحة"
+                )
+
+                return
+            }
+
+            val googleId =
+                GoogleIdTokenCredential.createFrom(
+                    credential.data
+                )
+
+            val firebaseCredential =
+                GoogleAuthProvider.getCredential(
+                    googleId.idToken,
+                    null
+                )
+
+            googleButton.isEnabled = false
+
+            googleButton.text =
+                "جارٍ تسجيل الدخول..."
+
+            auth.signInWithCredential(
+                firebaseCredential
+            )
+                .addOnCompleteListener(this) { task ->
+
+                    googleButton.isEnabled = true
+
+                    googleButton.text =
+                        "تسجيل الدخول باستخدام Google"
+
+                    if (task.isSuccessful) {
+
+                        val user =
+                            auth.currentUser
+
+                        if (user == null) {
+
+                            showError(
+                                "تعذر قراءة حساب Google"
+                            )
+
+                            return@addOnCompleteListener
+                        }
+
+                        checkingAccount = false
+
+                        showError(
+                            "تم تسجيل الدخول بنجاح"
+                        )
+
+                        when (selectedAccountType) {
+
+                            "passenger" -> {
+                                checkPassengerAccount(user)
+                            }
+
+                            "driver" -> {
+                                checkDriverAccount(user)
+                            }
+
+                            else -> {
+                                showCorrectScreen()
+                            }
+                        }
+
+                    } else {
+
+                        saveError(
+                            "Google Firebase sign-in failed",
+                            task.exception
+                        )
+
+                        showError(
+                            "فشل تسجيل الدخول: " +
+                            "${task.exception?.message}"
+                        )
+                    }
+                }
+
+        } catch (error: Exception) {
+
+            googleButton.isEnabled = true
+
+            googleButton.text =
+                "تسجيل الدخول باستخدام Google"
+
+            saveError(
+                "Reading Google credential failed",
+                error
+            )
+
+            showError(
+                "تعذر قراءة حساب Google: " +
+                "${error.message}"
+            )
+        }
+    }
+
+
+    // =========================
     // إضافة حساب من الإدارة
     // =========================
 
@@ -1092,9 +1202,7 @@ class MainActivity : Activity() {
 
         dialog.show()
     }
-
-
-    // =========================
+        // =========================
     // تسجيل السائق
     // =========================
 
@@ -1446,7 +1554,9 @@ class MainActivity : Activity() {
 
         setContentView(scroll)
     }
-        // =========================
+
+
+    // =========================
     // لوحة تحكم الإدارة
     // =========================
 
@@ -1746,9 +1856,7 @@ class MainActivity : Activity() {
             .setNegativeButton("إلغاء", null)
             .show()
     }
-
-
-    // =========================
+        // =========================
     // إدارة الركاب
     // =========================
 
@@ -2018,7 +2126,9 @@ class MainActivity : Activity() {
                 )
             }
     }
-        // =========================
+
+
+    // =========================
     // تفاصيل الرحلة
     // =========================
 
@@ -2375,9 +2485,7 @@ class MainActivity : Activity() {
                 showFinalReport()
             }
     }
-
-
-    // =========================
+        // =========================
     // صلاحيات الموقع
     // =========================
 
@@ -2660,7 +2768,9 @@ class MainActivity : Activity() {
 
         return mapView!!
     }
-        // =========================
+
+
+    // =========================
     // شاشة الراكب
     // =========================
 
