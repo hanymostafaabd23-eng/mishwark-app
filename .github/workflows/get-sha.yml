@@ -1,0 +1,31 @@
+
+name: Get Mishwark SHA Fingerprints
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  get-sha:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download project
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Get SHA fingerprints
+        run: |
+          chmod +x gradlew
+          ./gradlew :app:signingReport
+          
