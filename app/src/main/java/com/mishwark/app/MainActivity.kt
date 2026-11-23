@@ -19,18 +19,11 @@ import android.util.Log
 import android.widget.*
 
 import java.util.Locale
-import java.util.concurrent.TimeUnit
 
 import com.google.firebase.FirebaseApp
-import com.google.firebase.FirebaseException
 import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.auth.PhoneAuthOptions
-import com.google.firebase.auth.PhoneAuthProvider
-import com.google.firebase.auth.PhoneAuthCredential
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.GoogleAuthProvider
-import com.google.firebase.auth.AuthCredential
-
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.Source
@@ -61,8 +54,6 @@ class MainActivity : Activity() {
     private lateinit var auth: FirebaseAuth
     private lateinit var db: FirebaseFirestore
 
-    private var verificationId: String? = null
-
     private var checkingAccount = false
 
     private var selectedAccountType = "auto"
@@ -83,10 +74,6 @@ class MainActivity : Activity() {
     private var activeMapSelection: EditText? = null
 
     private lateinit var credentialManager: CredentialManager
-
-    private var googleCredentialPending: AuthCredential? = null
-
-    private var googleEmailPending: String? = null
 
     private val adminUid =
         "b7Qe8kkkf1U0cb2AV3xBz76k6Vv1"
@@ -243,7 +230,9 @@ class MainActivity : Activity() {
 
             auth = FirebaseAuth.getInstance()
             db = FirebaseFirestore.getInstance()
-            credentialManager = CredentialManager.create(this)
+
+            credentialManager =
+                CredentialManager.create(this)
 
             showCorrectScreen()
 
@@ -468,6 +457,14 @@ class MainActivity : Activity() {
 
                             "uid" to user.uid,
 
+                            "email" to (
+                                user.email ?: ""
+                            ),
+
+                            "name" to (
+                                user.displayName ?: ""
+                            ),
+
                             "phone" to (
                                 user.phoneNumber ?: ""
                             ),
@@ -610,19 +607,21 @@ class MainActivity : Activity() {
 
         driverButton.setOnClickListener {
             selectedAccountType = "driver"
-            showPhoneScreen()
+            showGoogleLoginScreen()
         }
 
         passengerButton.setOnClickListener {
             selectedAccountType = "passenger"
-            showPhoneScreen()
+            showGoogleLoginScreen()
         }
     }
-        // =========================
-    // شاشة تسجيل الهاتف وGoogle
+
+
+    // =========================
+    // شاشة تسجيل Google
     // =========================
 
-    private fun showPhoneScreen() {
+    private fun showGoogleLoginScreen() {
 
         val layout = createLayout()
 
@@ -654,25 +653,12 @@ class MainActivity : Activity() {
             setPadding(10, 20, 10, 20)
         }
 
-        val phone = EditText(this).apply {
-            hint = "أدخل رقم هاتفك 01xxxxxxxxx"
-            textSize = 18f
-            inputType = InputType.TYPE_CLASS_PHONE
-            setSingleLine(true)
-            setTextColor(Color.BLACK)
-            setBackgroundColor(Color.WHITE)
-            setPadding(20, 15, 20, 15)
-        }
-
-        val send = Button(this).apply {
-            text = "إرسال كود التأكيد"
-        }
-
         val googleButton = Button(this).apply {
-            text = "الدخول أو الربط باستخدام Google"
-            textSize = 17f
+            text = "تسجيل الدخول باستخدام Google"
+            textSize = 18f
             setTextColor(Color.rgb(10, 35, 70))
             setBackgroundColor(Color.WHITE)
+            setPadding(15, 20, 15, 20)
         }
 
         val back = Button(this).apply {
@@ -682,27 +668,10 @@ class MainActivity : Activity() {
         layout.addView(title)
         layout.addView(slogan)
         layout.addView(accountType)
-        layout.addView(phone)
-        layout.addView(send)
         layout.addView(googleButton)
         layout.addView(back)
 
         setContentView(layout)
-
-        send.setOnClickListener {
-
-            val number = phone.text.toString().trim()
-
-            if (!number.matches(Regex("^01[0125][0-9]{8}$"))) {
-                showError("أدخل رقم مصري صحيح")
-                return@setOnClickListener
-            }
-
-            sendCode(
-                "+20" + number.drop(1),
-                send
-            )
-        }
 
         googleButton.setOnClickListener {
             startGoogleSignIn(googleButton)
@@ -710,15 +679,13 @@ class MainActivity : Activity() {
 
         back.setOnClickListener {
             selectedAccountType = "auto"
-            googleCredentialPending = null
-            googleEmailPending = null
             showRoleSelectionScreen()
         }
     }
 
 
     // =========================
-    // بدء اختيار حساب Google
+    // تسجيل الدخول باستخدام Google
     // =========================
 
     private fun startGoogleSignIn(
@@ -758,52 +725,113 @@ class MainActivity : Activity() {
                         result: GetCredentialResponse
                     ) {
 
-                        googleButton.isEnabled = true
-                        googleButton.text =
-                            "الدخول أو الربط باستخدام Google"
-
                         try {
 
                             val credential =
                                 result.credential
 
                             if (
-                                credential is CustomCredential &&
-                                credential.type ==
-                                GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL
+                                credential !is CustomCredential ||
+                                credential.type !=
+                                GoogleIdTokenCredential
+                                    .TYPE_GOOGLE_ID_TOKEN_CREDENTIAL
                             ) {
 
-                                val googleId =
-                                    GoogleIdTokenCredential.createFrom(
-                                        credential.data
-                                    )
+                                googleButton.isEnabled = true
 
-                                val firebaseCredential =
-                                    GoogleAuthProvider.getCredential(
-                                        googleId.idToken,
-                                        null
-                                    )
-
-                                googleCredentialPending =
-                                    firebaseCredential
-
-                                googleEmailPending =
-                                    googleId.id
+                                googleButton.text =
+                                    "تسجيل الدخول باستخدام Google"
 
                                 showError(
-                                    "تم اختيار حساب Google. " +
-                                    "أدخل رقم هاتفك وأكّد كود SMS " +
-                                    "لربط الحساب."
+                                    "بيانات حساب Google غير صحيحة"
                                 )
 
-                            } else {
-
-                                showError(
-                                    "نوع حساب Google غير مدعوم"
-                                )
+                                return
                             }
 
+                            val googleId =
+                                GoogleIdTokenCredential.createFrom(
+                                    credential.data
+                                )
+
+                            val firebaseCredential =
+                                GoogleAuthProvider.getCredential(
+                                    googleId.idToken,
+                                    null
+                                )
+
+                            googleButton.text =
+                                "جارٍ تسجيل الدخول..."
+
+                            auth.signInWithCredential(
+                                firebaseCredential
+                            )
+                                .addOnCompleteListener(
+                                    this@MainActivity
+                                ) { task ->
+
+                                    googleButton.isEnabled = true
+
+                                    googleButton.text =
+                                        "تسجيل الدخول باستخدام Google"
+
+                                    if (task.isSuccessful) {
+
+                                        val user =
+                                            auth.currentUser
+
+                                        if (user == null) {
+
+                                            showError(
+                                                "تعذر قراءة حساب Google"
+                                            )
+
+                                            return@addOnCompleteListener
+                                        }
+
+                                        checkingAccount = false
+
+                                        showError(
+                                            "تم تسجيل الدخول بنجاح"
+                                        )
+
+                                        when (
+                                            selectedAccountType
+                                        ) {
+
+                                            "passenger" -> {
+                                                checkPassengerAccount(user)
+                                            }
+
+                                            "driver" -> {
+                                                checkDriverAccount(user)
+                                            }
+
+                                            else -> {
+                                                showCorrectScreen()
+                                            }
+                                        }
+
+                                    } else {
+
+                                        saveError(
+                                            "Google Firebase sign-in failed",
+                                            task.exception
+                                        )
+
+                                        showError(
+                                            "فشل تسجيل الدخول: " +
+                                            "${task.exception?.message}"
+                                        )
+                                    }
+                                }
+
                         } catch (error: Exception) {
+
+                            googleButton.isEnabled = true
+
+                            googleButton.text =
+                                "تسجيل الدخول باستخدام Google"
 
                             saveError(
                                 "Reading Google credential failed",
@@ -811,7 +839,7 @@ class MainActivity : Activity() {
                             )
 
                             showError(
-                                "تعذر قراءة بيانات Google: " +
+                                "تعذر قراءة حساب Google: " +
                                 "${error.message}"
                             )
                         }
@@ -822,8 +850,9 @@ class MainActivity : Activity() {
                     ) {
 
                         googleButton.isEnabled = true
+
                         googleButton.text =
-                            "الدخول أو الربط باستخدام Google"
+                            "تسجيل الدخول باستخدام Google"
 
                         saveError(
                             "Google credential request failed",
@@ -831,7 +860,7 @@ class MainActivity : Activity() {
                         )
 
                         showError(
-                            "تعذر اختيار حساب Google: " +
+                            "تعذر فتح حسابات Google: " +
                             "${error.message}"
                         )
                     }
@@ -841,8 +870,9 @@ class MainActivity : Activity() {
         } catch (error: Exception) {
 
             googleButton.isEnabled = true
+
             googleButton.text =
-                "الدخول أو الربط باستخدام Google"
+                "تسجيل الدخول باستخدام Google"
 
             saveError(
                 "Starting Google sign-in failed",
@@ -850,387 +880,13 @@ class MainActivity : Activity() {
             )
 
             showError(
-                "حدث خطأ أثناء فتح Google: ${error.message}"
+                "حدث خطأ أثناء تسجيل الدخول: " +
+                "${error.message}"
             )
         }
     }
-
-
-    // =========================
-    // إرسال كود التأكيد
-    // =========================
-
-    private fun sendCode(
-        number: String,
-        send: Button
-    ) {
-
-        send.isEnabled = false
-        send.text = "جارٍ إرسال الكود..."
-
-        try {
-
-            val callbacks =
-                object : PhoneAuthProvider
-                    .OnVerificationStateChangedCallbacks() {
-
-                    override fun onVerificationCompleted(
-                        credential: PhoneAuthCredential
-                    ) {
-
-                        signIn(credential)
-                    }
-
-                    override fun onVerificationFailed(
-                        e: FirebaseException
-                    ) {
-
-                        saveError(
-                            "Phone verification failed",
-                            e
-                        )
-
-                        runOnUiThread {
-
-                            send.isEnabled = true
-                            send.text = "إرسال كود التأكيد"
-
-                            showError(
-                                "فشل إرسال الكود: ${e.message}"
-                            )
-                        }
-                    }
-
-                    override fun onCodeSent(
-                        id: String,
-                        token: PhoneAuthProvider.ForceResendingToken
-                    ) {
-
-                        verificationId = id
-
-                        runOnUiThread {
-                            showCodeScreen()
-                        }
-                    }
-
-                    override fun onCodeAutoRetrievalTimeOut(
-                        id: String
-                    ) {
-
-                        verificationId = id
-                    }
-                }
-
-            val options =
-                PhoneAuthOptions.newBuilder(auth)
-                    .setPhoneNumber(number)
-                    .setTimeout(
-                        60L,
-                        TimeUnit.SECONDS
-                    )
-                    .setActivity(this)
-                    .setCallbacks(callbacks)
-                    .build()
-
-            PhoneAuthProvider.verifyPhoneNumber(options)
-
-        } catch (e: Exception) {
-
-            saveError(
-                "Sending code crashed",
-                e
-            )
-
-            send.isEnabled = true
-            send.text = "إرسال كود التأكيد"
-
-            showError(
-                "حدث خطأ: ${e.message}"
-            )
-        }
-    }
-
-
-    // =========================
-    // شاشة إدخال كود التأكيد
-    // =========================
-
-    private fun showCodeScreen() {
-
-        val layout = createLayout()
-
-        val title = TextView(this).apply {
-            text = "تأكيد رقم الهاتف"
-            textSize = 26f
-            setTextColor(Color.YELLOW)
-            gravity = Gravity.CENTER
-        }
-
-        val code = EditText(this).apply {
-            hint = "أدخل كود SMS"
-            textSize = 20f
-            inputType = InputType.TYPE_CLASS_NUMBER
-            setSingleLine(true)
-            setTextColor(Color.BLACK)
-            setBackgroundColor(Color.WHITE)
-            setPadding(20, 15, 20, 15)
-        }
-
-        val verify = Button(this).apply {
-            text = "تأكيد الدخول"
-        }
-
-        val back = Button(this).apply {
-            text = "العودة"
-        }
-
-        layout.addView(title)
-        layout.addView(code)
-        layout.addView(verify)
-        layout.addView(back)
-
-        setContentView(layout)
-
-        verify.setOnClickListener {
-
-            val enteredCode =
-                code.text.toString().trim()
-
-            val id = verificationId
-
-            if (enteredCode.length != 6 || id == null) {
-
-                showError(
-                    "أدخل كود التأكيد المكون من 6 أرقام"
-                )
-
-                return@setOnClickListener
-            }
-
-            verify.isEnabled = false
-            verify.text = "جارٍ التحقق..."
-
-            val credential =
-                PhoneAuthProvider.getCredential(
-                    id,
-                    enteredCode
-                )
-
-            signIn(credential)
-        }
-
-        back.setOnClickListener {
-            showPhoneScreen()
-        }
-    }
-
-
-    // =========================
-    // تسجيل الدخول برقم الهاتف
-    // =========================
-
-    private fun signIn(
-        credential: PhoneAuthCredential
-    ) {
-
-        try {
-
-            auth.signInWithCredential(credential)
-                .addOnCompleteListener(this) { task ->
-
-                    if (task.isSuccessful) {
-
-                        val user = auth.currentUser
-
-                        if (user == null) {
-
-                            checkingAccount = false
-
-                            showError(
-                                "تعذر قراءة بيانات الحساب"
-                            )
-
-                            return@addOnCompleteListener
-                        }
-
-                        checkingAccount = false
-
-                        val phoneNumber =
-                            user.phoneNumber ?: ""
-
-                        if (phoneNumber.isEmpty()) {
-
-                            auth.signOut()
-
-                            showError(
-                                "لم يتم العثور على رقم الهاتف"
-                            )
-
-                            showRoleSelectionScreen()
-
-                            return@addOnCompleteListener
-                        }
-
-                        // لا نتحقق من account_registry هنا.
-                        // الراكب ينشئ حسابه تلقائياً.
-                        // السائق يقدم طلب تسجيل جديد.
-
-                        val pendingCredential =
-                            googleCredentialPending
-
-                        if (pendingCredential != null) {
-
-                            linkGoogleToCurrentUser(
-                                pendingCredential,
-                                googleEmailPending
-                            )
-
-                        } else {
-
-                            showError(
-                                "تم التحقق من رقم الهاتف بنجاح"
-                            )
-
-                            when (selectedAccountType) {
-
-                                "passenger" -> {
-                                    checkPassengerAccount(user)
-                                }
-
-                                "driver" -> {
-                                    checkDriverAccount(user)
-                                }
-
-                                else -> {
-                                    showCorrectScreen()
-                                }
-                            }
-                        }
-
-                    } else {
-
-                        checkingAccount = false
-
-                        saveError(
-                            "Phone sign in failed",
-                            task.exception
-                        )
-
-                        showError(
-                            "فشل تسجيل الدخول: " +
-                            "${task.exception?.message}"
-                        )
-                    }
-                }
-
-        } catch (e: Exception) {
-
-            checkingAccount = false
-
-            saveError(
-                "Phone sign in crashed",
-                e
-            )
-
-            showError(
-                "خطأ في تسجيل الدخول: ${e.message}"
-            )
-        }
-    }
-
-
-    // =========================
-    // ربط Google بحساب الهاتف الحالي
-    // =========================
-
-    private fun linkGoogleToCurrentUser(
-        credential: AuthCredential,
-        googleEmail: String?
-    ) {
-
-        val user = auth.currentUser
-
-        if (user == null) {
-
-            googleCredentialPending = null
-            googleEmailPending = null
-
-            showError(
-                "يجب تسجيل الدخول برقم الهاتف أولاً"
-            )
-
-            showRoleSelectionScreen()
-
-            return
-        }
-
-        user.linkWithCredential(credential)
-            .addOnCompleteListener(this) { task ->
-
-                checkingAccount = false
-
-                if (task.isSuccessful) {
-
-                    googleCredentialPending = null
-                    googleEmailPending = null
-
-                    showError(
-                        "تم ربط حساب Google بحسابك بنجاح"
-                    )
-
-                    when (selectedAccountType) {
-
-                        "passenger" -> {
-                            checkPassengerAccount(user)
-                        }
-
-                        "driver" -> {
-                            checkDriverAccount(user)
-                        }
-
-                        else -> {
-                            showCorrectScreen()
-                        }
-                    }
-
-                } else {
-
-                    saveError(
-                        "Linking Google account failed",
-                        task.exception
-                    )
-
-                    val errorMessage =
-                        task.exception?.message ?: ""
-
-                    if (
-                        errorMessage.contains(
-                            "credential-already-in-use",
-                            true
-                        )
-                    ) {
-
-                        showError(
-                            "حساب Google مرتبط بحساب آخر بالفعل. " +
-                            "لا يمكن دمجه تلقائياً."
-                        )
-
-                    } else {
-
-                        showError(
-                            "تعذر ربط Google: $errorMessage"
-                        )
-                    }
-
-                    googleCredentialPending = null
-                    googleEmailPending = null
-
-                    showCorrectScreen()
-                }
-            }
-    }
-       // =========================
-    // إضافة حساب جديد من الإدارة
+        // =========================
+    // إضافة حساب من الإدارة
     // =========================
 
     private fun addAccountDialog() {
@@ -1245,9 +901,9 @@ class MainActivity : Activity() {
             setPadding(35, 20, 35, 10)
         }
 
-        val phoneInput = EditText(this).apply {
-            hint = "رقم الهاتف 01xxxxxxxxx"
-            inputType = InputType.TYPE_CLASS_PHONE
+        val emailInput = EditText(this).apply {
+            hint = "البريد الإلكتروني Gmail"
+            inputType = InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS
             textSize = 18f
             setSingleLine(true)
         }
@@ -1259,28 +915,31 @@ class MainActivity : Activity() {
             setPadding(0, 20, 0, 10)
         }
 
-        val accountGroup = RadioGroup(this).apply {
-            orientation = RadioGroup.VERTICAL
-        }
+        val accountGroup =
+            RadioGroup(this).apply {
+                orientation = RadioGroup.VERTICAL
+            }
 
-        val passengerRadio = RadioButton(this).apply {
-            text = "راكب"
-            textSize = 18f
-            id = 7101
-        }
+        val passengerRadio =
+            RadioButton(this).apply {
+                text = "راكب"
+                textSize = 18f
+                id = 7101
+            }
 
-        val driverRadio = RadioButton(this).apply {
-            text = "سائق"
-            textSize = 18f
-            id = 7102
-        }
+        val driverRadio =
+            RadioButton(this).apply {
+                text = "سائق"
+                textSize = 18f
+                id = 7102
+            }
 
         accountGroup.addView(passengerRadio)
         accountGroup.addView(driverRadio)
 
         passengerRadio.isChecked = true
 
-        layout.addView(phoneInput)
+        layout.addView(emailInput)
         layout.addView(title)
         layout.addView(accountGroup)
 
@@ -1297,20 +956,23 @@ class MainActivity : Activity() {
                 AlertDialog.BUTTON_POSITIVE
             ).setOnClickListener {
 
-                val enteredPhone =
-                    phoneInput.text.toString().trim()
+                val email =
+                    emailInput.text.toString()
+                        .trim()
+                        .lowercase(Locale.ROOT)
 
                 if (
-                    !enteredPhone.matches(
-                        Regex("^01[0125][0-9]{8}$")
-                    )
+                    !android.util.Patterns.EMAIL_ADDRESS
+                        .matcher(email)
+                        .matches()
                 ) {
-                    showError("أدخل رقم هاتف مصري صحيح")
+
+                    showError(
+                        "أدخل بريد إلكتروني صحيح"
+                    )
+
                     return@setOnClickListener
                 }
-
-                val phoneNumber =
-                    "+20" + enteredPhone.drop(1)
 
                 val role =
                     if (driverRadio.isChecked) {
@@ -1319,11 +981,12 @@ class MainActivity : Activity() {
                         "passenger"
                     }
 
-                val adminId =
-                    auth.currentUser?.uid
+                if (!isAdminUser()) {
 
-                if (adminId != adminUid) {
-                    showError("انتهت صلاحية الإدارة")
+                    showError(
+                        "انتهت صلاحية الإدارة"
+                    )
+
                     dialog.dismiss()
                     return@setOnClickListener
                 }
@@ -1338,16 +1001,16 @@ class MainActivity : Activity() {
 
                 val accountData =
                     hashMapOf<String, Any>(
-                        "phone" to phoneNumber,
+                        "email" to email,
                         "role" to role,
-                        "status" to "active",
+                        "status" to "invited",
                         "createdAt" to
                             FieldValue.serverTimestamp(),
                         "createdBy" to adminUid
                     )
 
                 db.collection("account_registry")
-                    .document(phoneNumber)
+                    .document(email)
                     .get(Source.SERVER)
                     .addOnSuccessListener { existing ->
 
@@ -1357,13 +1020,13 @@ class MainActivity : Activity() {
                             button.text = "إضافة"
 
                             showError(
-                                "هذا الرقم مضاف بالفعل"
+                                "هذا البريد مضاف بالفعل"
                             )
 
                         } else {
 
                             db.collection("account_registry")
-                                .document(phoneNumber)
+                                .document(email)
                                 .set(accountData)
                                 .addOnSuccessListener {
 
@@ -1381,10 +1044,10 @@ class MainActivity : Activity() {
                                             "تمت الإضافة بنجاح"
                                         )
                                         .setMessage(
-                                            "تم إضافة الحساب بنجاح.\n\n" +
-                                            "رقم الهاتف: $phoneNumber\n" +
+                                            "تم تسجيل دعوة الحساب.\n\n" +
+                                            "البريد: $email\n" +
                                             "نوع الحساب: $accountName\n\n" +
-                                            "يمكن لصاحب الرقم تسجيل الدخول بكود التأكيد."
+                                            "صاحب البريد يسجل الدخول باستخدام Google."
                                         )
                                         .setPositiveButton(
                                             "موافق",
@@ -1420,7 +1083,7 @@ class MainActivity : Activity() {
                         )
 
                         showError(
-                            "تعذر التحقق من الرقم:\n" +
+                            "تعذر التحقق من البريد:\n" +
                             "${error.message}"
                         )
                     }
@@ -1496,12 +1159,15 @@ class MainActivity : Activity() {
         val name =
             addInput("اسم السائق بالكامل")
 
-        val phone =
-            addInput("رقم الهاتف")
+        val email =
+            addInput("البريد الإلكتروني")
 
-        phone.setText(
-            user.phoneNumber ?: ""
+        email.setText(
+            user.email ?: ""
         )
+
+        val phone =
+            addInput("رقم الهاتف (اختياري)")
 
         addText(
             "اختر نوع المركبة",
@@ -1557,6 +1223,9 @@ class MainActivity : Activity() {
             val driverName =
                 name.text.toString().trim()
 
+            val driverEmail =
+                email.text.toString().trim()
+
             val driverPhone =
                 phone.text.toString().trim()
 
@@ -1568,12 +1237,14 @@ class MainActivity : Activity() {
                 return@setOnClickListener
             }
 
-            if (driverPhone.isEmpty()) {
-                showError("اكتب رقم الهاتف")
+            if (driverEmail.isEmpty()) {
+                showError("البريد الإلكتروني مطلوب")
                 return@setOnClickListener
             }
 
-            if (vehicleGroup.checkedRadioButtonId == -1) {
+            if (
+                vehicleGroup.checkedRadioButtonId == -1
+            ) {
                 showError("اختر نوع المركبة")
                 return@setOnClickListener
             }
@@ -1595,6 +1266,7 @@ class MainActivity : Activity() {
                 hashMapOf<String, Any>(
                     "uid" to user.uid,
                     "name" to driverName,
+                    "email" to driverEmail,
                     "phone" to driverPhone,
                     "vehicleType" to selectedVehicle,
                     "plateNumber" to plateNumber,
@@ -1631,7 +1303,7 @@ class MainActivity : Activity() {
         }
 
         val back = Button(this).apply {
-            text = "العودة لاختيار الحساب"
+            text = "تسجيل الخروج"
         }
 
         main.addView(back)
@@ -1674,6 +1346,7 @@ class MainActivity : Activity() {
         main.addView(title)
 
         val statusText = when (status) {
+
             "approved" ->
                 "تم قبول طلبك! يمكنك العمل كسائق."
 
@@ -1772,8 +1445,8 @@ class MainActivity : Activity() {
         }
 
         setContentView(scroll)
-    } 
-       // =========================
+    }
+        // =========================
     // لوحة تحكم الإدارة
     // =========================
 
@@ -1935,21 +1608,30 @@ class MainActivity : Activity() {
                 for (document in result) {
 
                     val name =
-                        document.getString("name") ?: "بدون اسم"
+                        document.getString("name")
+                            ?: "بدون اسم"
+
+                    val email =
+                        document.getString("email")
+                            ?: "غير متوفر"
 
                     val phone =
-                        document.getString("phone") ?: ""
+                        document.getString("phone")
+                            ?: "غير متوفر"
 
                     val vehicle =
-                        document.getString("vehicleType") ?: ""
+                        document.getString("vehicleType")
+                            ?: ""
 
                     val plate =
-                        document.getString("plateNumber") ?: ""
+                        document.getString("plateNumber")
+                            ?: ""
 
                     val card = TextView(this).apply {
 
                         text =
                             "الاسم: $name\n" +
+                            "البريد الإلكتروني: $email\n" +
                             "الهاتف: $phone\n" +
                             "المركبة: $vehicle\n" +
                             "رقم اللوحة: $plate"
@@ -2000,7 +1682,8 @@ class MainActivity : Activity() {
                 )
 
                 showError(
-                    "فشل تحميل طلبات السائقين: ${error.message}"
+                    "فشل تحميل طلبات السائقين: " +
+                    "${error.message}"
                 )
             }
     }
@@ -2055,7 +1738,8 @@ class MainActivity : Activity() {
                         )
 
                         showError(
-                            "فشل تنفيذ القرار: ${error.message}"
+                            "فشل تنفيذ القرار: " +
+                            "${error.message}"
                         )
                     }
             }
@@ -2124,6 +1808,14 @@ class MainActivity : Activity() {
 
                 for (document in result) {
 
+                    val name =
+                        document.getString("name")
+                            ?: "بدون اسم"
+
+                    val email =
+                        document.getString("email")
+                            ?: "غير متوفر"
+
                     val phone =
                         document.getString("phone")
                             ?: "غير متوفر"
@@ -2135,7 +1827,9 @@ class MainActivity : Activity() {
                     val item = TextView(this).apply {
 
                         text =
-                            "رقم الهاتف: $phone\n" +
+                            "الاسم: $name\n" +
+                            "البريد الإلكتروني: $email\n" +
+                            "الهاتف: $phone\n" +
                             "الحالة: $status"
 
                         textSize = 17f
@@ -2158,7 +1852,8 @@ class MainActivity : Activity() {
                 )
 
                 showError(
-                    "فشل تحميل الركاب: ${error.message}"
+                    "فشل تحميل الركاب: " +
+                    "${error.message}"
                 )
             }
     }
@@ -2228,7 +1923,8 @@ class MainActivity : Activity() {
                             ?: "غير محدد"
 
                     val passenger =
-                        document.getString("passengerPhone")
+                        document.getString("passengerEmail")
+                            ?: document.getString("passengerPhone")
                             ?: document.getString("phone")
                             ?: "غير متوفر"
 
@@ -2317,13 +2013,12 @@ class MainActivity : Activity() {
                 )
 
                 showError(
-                    "فشل تحميل الرحلات: ${error.message}"
+                    "فشل تحميل الرحلات: " +
+                    "${error.message}"
                 )
             }
     }
-
-
-    // =========================
+        // =========================
     // تفاصيل الرحلة
     // =========================
 
@@ -2368,7 +2063,8 @@ class MainActivity : Activity() {
                 )
 
                 showError(
-                    "تعذر تحميل التفاصيل: ${error.message}"
+                    "تعذر تحميل التفاصيل: " +
+                    "${error.message}"
                 )
             }
     }
@@ -2436,6 +2132,10 @@ class MainActivity : Activity() {
                                     driver.getString("phone") ?: ""
                                 ),
 
+                                "driverEmail" to (
+                                    driver.getString("email") ?: ""
+                                ),
+
                                 "status" to "accepted",
 
                                 "assignedAt" to
@@ -2461,7 +2161,8 @@ class MainActivity : Activity() {
                                 )
 
                                 showError(
-                                    "فشل تعيين السائق: ${error.message}"
+                                    "فشل تعيين السائق: " +
+                                    "${error.message}"
                                 )
                             }
                     }
@@ -2476,7 +2177,8 @@ class MainActivity : Activity() {
                 )
 
                 showError(
-                    "تعذر تحميل السائقين: ${error.message}"
+                    "تعذر تحميل السائقين: " +
+                    "${error.message}"
                 )
             }
     }
@@ -2532,7 +2234,8 @@ class MainActivity : Activity() {
                         )
 
                         showError(
-                            "فشل تحديث الرحلة: ${error.message}"
+                            "فشل تحديث الرحلة: " +
+                            "${error.message}"
                         )
                     }
             }
@@ -2671,8 +2374,10 @@ class MainActivity : Activity() {
 
                 showFinalReport()
             }
-    } 
-        // =========================
+    }
+
+
+    // =========================
     // صلاحيات الموقع
     // =========================
 
@@ -2955,9 +2660,7 @@ class MainActivity : Activity() {
 
         return mapView!!
     }
-
-
-    // =========================
+        // =========================
     // شاشة الراكب
     // =========================
 
@@ -3050,6 +2753,24 @@ class MainActivity : Activity() {
             19f,
             Color.WHITE
         )
+
+        val currentUser =
+            auth.currentUser
+
+        if (currentUser != null) {
+
+            addTitle(
+                "مرحباً ${currentUser.displayName ?: "بك"}",
+                18f,
+                Color.WHITE
+            )
+
+            addTitle(
+                currentUser.email ?: "",
+                15f,
+                Color.WHITE
+            )
+        }
 
         val transportGroup =
             RadioGroup(this).apply {
@@ -3268,10 +2989,10 @@ class MainActivity : Activity() {
                 return@setOnClickListener
             }
 
-            val currentUser =
+            val user =
                 auth.currentUser
 
-            if (currentUser == null) {
+            if (user == null) {
 
                 showError(
                     "سجل دخولك مرة أخرى"
@@ -3296,10 +3017,16 @@ class MainActivity : Activity() {
                 hashMapOf<String, Any>(
 
                     "passengerUid" to
-                        currentUser.uid,
+                        user.uid,
+
+                    "passengerEmail" to
+                        (user.email ?: ""),
+
+                    "passengerName" to
+                        (user.displayName ?: ""),
 
                     "passengerPhone" to
-                        (currentUser.phoneNumber ?: ""),
+                        (user.phoneNumber ?: ""),
 
                     "vehicleType" to selected,
 
@@ -3349,7 +3076,8 @@ class MainActivity : Activity() {
                     )
 
                     showError(
-                        "تعذر إرسال الطلب: ${error.message}"
+                        "تعذر إرسال الطلب: " +
+                        "${error.message}"
                     )
                 }
         }
