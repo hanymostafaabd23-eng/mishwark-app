@@ -370,21 +370,20 @@ class MainActivity : Activity() {
 
                     showDriverRegistrationScreen()
                 }
-            }
-            .addOnFailureListener { error ->
+            }.addOnFailureListener { error ->
+    checkingAccount = false
 
-                checkingAccount = false
+    saveError("Checking driver account failed", error)
 
-                saveError(
-                    "Checking driver account failed",
-                    error
-                )
+    val errorCode = (error as? FirebaseFirestoreException)?.code
+    val errorMessage = error.message ?: "لا توجد تفاصيل"
 
-                showError(
-                    "تعذر التحقق من حساب السائق. " +
-                    "راجع اتصال الإنترنت وحاول مرة أخرى."
-                )
-            }
+    showError(
+        "خطأ التحقق من حساب السائق\n\n" +
+        "كود الخطأ: $errorCode\n\n" +
+        "التفاصيل: $errorMessage"
+    )
+}
     }
 
 
