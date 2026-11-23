@@ -35,10 +35,7 @@ jobs:
           gradle assembleDebug --stacktrace --console=plain 2>&1 | tee build.log
 
       - name: Get SHA Fingerprints
-        run: |
-          APK="app/build/outputs/apk/debug/app-debug.apk"
-          echo "APK certificate fingerprints:"
-          keytool -printcert -jarfile "$APK"
+        run: gradle :app:signingReport --console=plain
 
       - name: Upload build log
         if: always()
