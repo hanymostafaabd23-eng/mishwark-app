@@ -15,6 +15,14 @@
       },
       "oauth_client": [
         {
+          "client_id": "369596763433-ocs4s4n27hs3fje3guhl7s667dgbdcip.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.mishwark.app",
+            "certificate_hash": "5ab38f83773f544077e75317cefd9317b0498acc"
+          }
+        },
+        {
           "client_id": "369596763433-p376rmq29up6kunuascso72inegk400s.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {
