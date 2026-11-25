@@ -25,13 +25,23 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
-
       - name: Decode signing keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.MISHWARK_KEYSTORE_BASE64 }}
         run: |
-          printf '%s' "${{ secrets.MISHWARK_KEYSTORE_BASE64 }}" | base64 --decode > "$RUNNER_TEMP/mishwark-release.jks"
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "ERROR: Keystore secret is empty"
+            exit 1
+          fi
 
-      - name: Show project files
-        run: find app/src/main -type f
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/mishwark-release.jks"
+
+          if [ ! -s "$RUNNER_TEMP/mishwark-release.jks" ]; then
+            echo "ERROR: Keystore file is empty"
+            exit 1
+          fi
+
+          echo "Keystore decoded successfully"
 
       - name: Build APK
         env:
