@@ -26,15 +26,29 @@ jobs:
         with:
           gradle-version: '8.9'
 
+      - name: Decode signing keystore
+        run: |
+          printf '%s' "${{ secrets.MISHWARK_KEYSTORE_BASE64 }}" | base64 --decode > "$RUNNER_TEMP/mishwark-release.jks"
+
       - name: Show project files
         run: find app/src/main -type f
 
       - name: Build APK
+        env:
+          MISHWARK_KEYSTORE_PATH: ${{ runner.temp }}/mishwark-release.jks
+          MISHWARK_STORE_PASSWORD: ${{ secrets.MISHWARK_STORE_PASSWORD }}
+          MISHWARK_KEY_PASSWORD: ${{ secrets.MISHWARK_KEY_PASSWORD }}
+          MISHWARK_KEY_ALIAS: ${{ secrets.MISHWARK_KEY_ALIAS }}
         run: |
           set -o pipefail
           gradle assembleDebug --stacktrace --console=plain 2>&1 | tee build.log
 
       - name: Get SHA Fingerprints
+        env:
+          MISHWARK_KEYSTORE_PATH: ${{ runner.temp }}/mishwark-release.jks
+          MISHWARK_STORE_PASSWORD: ${{ secrets.MISHWARK_STORE_PASSWORD }}
+          MISHWARK_KEY_PASSWORD: ${{ secrets.MISHWARK_KEY_PASSWORD }}
+          MISHWARK_KEY_ALIAS: ${{ secrets.MISHWARK_KEY_ALIAS }}
         run: gradle :app:signingReport --console=plain
 
       - name: Upload build log
