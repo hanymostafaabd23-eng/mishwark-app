@@ -10,6 +10,11 @@ val keystorePassword = System.getenv("MISHWARK_STORE_PASSWORD")
 val keyPasswordValue = System.getenv("MISHWARK_KEY_PASSWORD")
 val keyAliasValue = System.getenv("MISHWARK_KEY_ALIAS")
 
+val signingReady =
+    !keystorePath.isNullOrBlank() &&
+    !keystorePassword.isNullOrBlank() &&
+    !keyAliasValue.isNullOrBlank()
+
 android {
     namespace = "com.mishwark.app"
     compileSdk = 35
@@ -24,12 +29,8 @@ android {
 
     signingConfigs {
         create("mishwark") {
-            if (
-                !keystorePath.isNullOrBlank() &&
-                !keystorePassword.isNullOrBlank() &&
-                !keyAliasValue.isNullOrBlank()
-            ) {
-                storeFile = file(keystorePath)
+            if (signingReady) {
+                storeFile = file(keystorePath!!)
                 storePassword = keystorePassword
                 keyAlias = keyAliasValue
                 keyPassword = keyPasswordValue ?: keystorePassword
@@ -39,13 +40,18 @@ android {
 
     buildTypes {
         getByName("debug") {
-            if (
-                !keystorePath.isNullOrBlank() &&
-                !keystorePassword.isNullOrBlank() &&
-                !keyAliasValue.isNullOrBlank()
-            ) {
-                signingConfig = signingConfigs.getByName("mishwark")
+            // Keep the normal Android debug signing
+        }
+
+        getByName("release") {
+            if (!signingReady) {
+                throw GradleException(
+                    "Mishwark release signing configuration is missing"
+                )
             }
+
+            signingConfig = signingConfigs.getByName("mishwark")
+            isMinifyEnabled = false
         }
     }
 
