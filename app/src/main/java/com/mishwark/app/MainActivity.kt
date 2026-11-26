@@ -531,7 +531,7 @@ class MainActivity : Activity() {
         .setPositiveButton("موافق", null)
         .show()
 }
-
+    }
 
     // =========================
     // إنشاء تصميم الشاشة
