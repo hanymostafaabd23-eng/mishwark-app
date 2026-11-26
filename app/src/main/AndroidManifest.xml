@@ -1,88 +1,26 @@
-{
-  "project_info": {
-    "project_number": "369596763433",
-    "firebase_url": "https://mishwark-cee95-default-rtdb.firebaseio.com",
-    "project_id": "mishwark-cee95",
-    "storage_bucket": "mishwark-cee95.firebasestorage.app"
-  },
-  "client": [
-    {
-      "client_info": {
-        "mobilesdk_app_id": "1:369596763433:android:f0c1918dae3a7c37eb7b38",
-        "android_client_info": {
-          "package_name": "com.mishwark.app"
-        }
-      },
-      "oauth_client": [
-        {
-          "client_id": "369596763433-bje3lkrbk8uu984m1mj1muqhs1bqgseb.apps.googleusercontent.com",
-          "client_type": 1,
-          "android_info": {
-            "package_name": "com.mishwark.app",
-            "certificate_hash": "0a38db6d6b188f9d2c5d927befc21f279ee02a19"
-          }
-        },
-        {
-          "client_id": "369596763433-lravuh5kfesvlsad0kacf1pjlkmro8c7.apps.googleusercontent.com",
-          "client_type": 1,
-          "android_info": {
-            "package_name": "com.mishwark.app",
-            "certificate_hash": "4241d75fe56c2a8f1cd2df035f9cd5fc6550a2ff"
-          }
-        },
-        {
-          "client_id": "369596763433-ocs4s4n27hs3fje3guhl7s667dgbdcip.apps.googleusercontent.com",
-          "client_type": 1,
-          "android_info": {
-            "package_name": "com.mishwark.app",
-            "certificate_hash": "5ab38f83773f544077e75317cefd9317b0498acc"
-          }
-        },
-        {
-          "client_id": "369596763433-p376rmq29up6kunuascso72inegk400s.apps.googleusercontent.com",
-          "client_type": 1,
-          "android_info": {
-            "package_name": "com.mishwark.app",
-            "certificate_hash": "90285644974740e2310bb7927ba166bb527a1492"
-          }
-        },
-        {
-          "client_id": "369596763433-sdd1ug23onmb37hmjg27o95nk1fcutrv.apps.googleusercontent.com",
-          "client_type": 1,
-          "android_info": {
-            "package_name": "com.mishwark.app",
-            "certificate_hash": "07d398601d315243ad906108c9cc1dcd3bb7dc36"
-          }
-        },
-        {
-          "client_id": "369596763433-u77iqq0soe5tkeatm53bftbqhmgne49h.apps.googleusercontent.com",
-          "client_type": 1,
-          "android_info": {
-            "package_name": "com.mishwark.app",
-            "certificate_hash": "bd55b7551869646a98676b85a01a994c8cf9b685"
-          }
-        },
-        {
-          "client_id": "369596763433-2sopu0miip86ab3dp2m8cb2fn47adu6u.apps.googleusercontent.com",
-          "client_type": 3
-        }
-      ],
-      "api_key": [
-        {
-          "current_key": "AIzaSyD4U2321y3qC4Dp5nskdTGfOaCtQZbPeE0"
-        }
-      ],
-      "services": {
-        "appinvite_service": {
-          "other_platform_oauth_client": [
-            {
-              "client_id": "369596763433-2sopu0miip86ab3dp2m8cb2fn47adu6u.apps.googleusercontent.com",
-              "client_type": 3
-            }
-          ]
-        }
-      }
-    }
-  ],
-  "configuration_version": "1"
-}
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+
+    <application
+        android:label="مشوارك"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher"
+        android:theme="@android:style/Theme.Material.Light.NoActionBar"
+        android:usesCleartextTraffic="false">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+    </application>
+
+</manifest>
