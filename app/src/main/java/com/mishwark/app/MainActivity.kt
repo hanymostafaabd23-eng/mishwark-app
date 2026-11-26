@@ -507,23 +507,30 @@ class MainActivity : Activity() {
                             )
                         }
                 }
-            }
-            .addOnFailureListener { error ->
+            }.addOnFailureListener { error ->
 
-                checkingAccount = false
+    checkingAccount = false
 
-                saveError(
-                    "Checking passenger account failed",
-                    error
-                )
+    saveError(
+        "Checking passenger account failed",
+        error
+    )
 
-                showError(
-                    "تعذر الاتصال بقاعدة البيانات. " +
-                    "لم يتم إنشاء حساب جديد. " +
-                    "حاول مرة أخرى."
-                )
-            }
-    }
+    val errorCode =
+        (error as? FirebaseFirestoreException)?.code
+
+    val errorMessage =
+        error.message ?: "لا توجد تفاصيل"
+
+    AlertDialog.Builder(this)
+        .setTitle("خطأ التحقق من حساب الراكب")
+        .setMessage(
+            "كود الخطأ: $errorCode\n\n" +
+            "التفاصيل:\n$errorMessage"
+        )
+        .setPositiveButton("موافق", null)
+        .show()
+}
 
 
     // =========================
