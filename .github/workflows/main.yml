@@ -25,25 +25,34 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
+
       - name: Decode signing keystore
         env:
           KEYSTORE_BASE64: ${{ secrets.MISHWARK_KEYSTORE_BASE64 }}
         run: |
+          set -e
           if [ -z "$KEYSTORE_BASE64" ]; then
             echo "ERROR: Keystore secret is empty"
             exit 1
           fi
-
           printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/mishwark-release.jks"
-
           if [ ! -s "$RUNNER_TEMP/mishwark-release.jks" ]; then
             echo "ERROR: Keystore file is empty"
             exit 1
           fi
-
           echo "Keystore decoded successfully"
 
-      - name: Build APK
+      - name: Validate signing key
+        env:
+          STORE_PASSWORD: ${{ secrets.MISHWARK_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.MISHWARK_KEY_ALIAS }}
+        run: |
+          keytool -list \
+            -keystore "$RUNNER_TEMP/mishwark-release.jks" \
+            -storepass "$STORE_PASSWORD" \
+            -alias "$KEY_ALIAS"
+
+      - name: Build Release APK
         env:
           MISHWARK_KEYSTORE_PATH: ${{ runner.temp }}/mishwark-release.jks
           MISHWARK_STORE_PASSWORD: ${{ secrets.MISHWARK_STORE_PASSWORD }}
@@ -51,7 +60,7 @@ jobs:
           MISHWARK_KEY_ALIAS: ${{ secrets.MISHWARK_KEY_ALIAS }}
         run: |
           set -o pipefail
-          gradle assembleDebug --stacktrace --console=plain 2>&1 | tee build.log
+          gradle assembleRelease --stacktrace --console=plain 2>&1 | tee build.log
 
       - name: Get SHA Fingerprints
         env:
@@ -69,9 +78,10 @@ jobs:
           path: build.log
           if-no-files-found: ignore
 
-      - name: Upload APK
+      - name: Upload Release APK
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: Mishwark-Test-APK
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: Mishwark-Release-APK
+          path: app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
